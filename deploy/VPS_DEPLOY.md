@@ -47,6 +47,10 @@ Gia tri toi thieu:
 NODE_ENV=production
 PORT=3000
 MAPS_PROVIDER=mock
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=doi-mat-khau-nay
+ADMIN_SESSION_SECRET=chuoi-random-that-dai
+CP24H_STORAGE_DIR=storage
 ```
 
 Khong dua `.env` len git.
@@ -57,6 +61,7 @@ Khong dua `.env` len git.
 npm ci
 npm run build
 mkdir -p logs
+mkdir -p storage
 ```
 
 ## 5. Chay bang PM2
@@ -169,5 +174,7 @@ Ket qua dung co dang:
 - Maps dang la mock provider.
 - Zalo dispatch dang la mock log, chua gui Zalo that.
 - Admin chua co auth.
+- AdminCP da co login cookie co ban bang env.
+- Don hang, dispatch logs va ung tuyen doi tac dang luu JSON trong `storage/`.
 
-Truoc khi chay production that can uu tien: database + auth admin + logging.
+Truoc khi chay production lon can uu tien: database SQL + phan quyen admin + logging/backup storage.

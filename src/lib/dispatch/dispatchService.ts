@@ -1,8 +1,13 @@
 import { DispatchStatus, OrderStatus } from "../constants/enums";
 import type { AIDispatchLog, Order } from "../types";
 import { generateDriverBroadcastMessage, suggestZaloGroups } from "./aiDispatchService";
+import { readJsonArray, writeJsonArray } from "../storage/jsonStore";
 
-let dispatchLogs: AIDispatchLog[] = [];
+let dispatchLogs: AIDispatchLog[] = readJsonArray<AIDispatchLog>("dispatchLogs.json", []);
+
+function persistDispatchLogs() {
+  writeJsonArray("dispatchLogs.json", dispatchLogs);
+}
 
 export function prepareOrderForDispatch(order: Order) {
   const groups = suggestZaloGroups(order);
@@ -34,6 +39,7 @@ export function sendOrderToZaloGroups(order: Order, sentBy: "AI_BOT" | "ADMIN" =
     createdAt: now,
   }));
   dispatchLogs = [...logs, ...dispatchLogs];
+  persistDispatchLogs();
   return {
     logs,
     updates: {
@@ -70,4 +76,3 @@ export function addDispatchPreviewLog(order: Order) {
     createdAt: now,
   }));
 }
-

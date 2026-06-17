@@ -1,8 +1,13 @@
 import { DispatchStatus, OrderStatus, Visibility } from "../constants/enums";
 import type { DriverCandidate, Order, OrderTimelineEvent } from "../types";
 import { mockOrders } from "../../data/mockOrders";
+import { readJsonArray, writeJsonArray } from "../storage/jsonStore";
 
-let orders: Order[] = [...mockOrders];
+let orders: Order[] = readJsonArray<Order>("orders.json", mockOrders);
+
+function persistOrders() {
+  writeJsonArray("orders.json", orders);
+}
 
 export function getOrders() {
   return orders;
@@ -14,11 +19,13 @@ export function getOrderByCode(orderCode: string) {
 
 export function createOrder(payload: Order) {
   orders = [payload, ...orders];
+  persistOrders();
   return payload;
 }
 
 export function updateOrder(orderId: string, updates: Partial<Order>) {
   orders = orders.map((order) => (order.id === orderId ? { ...order, ...updates, updatedAt: new Date().toISOString() } : order));
+  persistOrders();
   return orders.find((order) => order.id === orderId) || null;
 }
 
@@ -68,4 +75,3 @@ export function markOrderManualReview(orderId: string, note = "Can xu ly thu con
     internalNotes: note,
   });
 }
-

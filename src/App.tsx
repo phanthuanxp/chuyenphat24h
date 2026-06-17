@@ -702,6 +702,8 @@ function TrackingPage() {
 }
 
 function AdminPage() {
+  const [authenticated, setAuthenticated] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [preview, setPreview] = useState<Array<{ targetGroupName: string; messageContent: string }>>([]);
@@ -709,11 +711,35 @@ function AdminPage() {
   const selectedOrder = useMemo(() => orders.find((order) => order.id === selectedOrderId), [orders, selectedOrderId]);
 
   useEffect(() => {
-    fetch("/api/orders").then((res) => res.json()).then((data: Order[]) => {
-      setOrders(data);
-      setSelectedOrderId(data[0]?.id || "");
-    });
+    fetch("/api/admin/session")
+      .then((res) => res.json())
+      .then((session) => {
+        setAuthenticated(Boolean(session.authenticated));
+        if (session.authenticated) {
+          loadOrders();
+        }
+      })
+      .finally(() => setCheckingSession(false));
   }, []);
+
+  function handleUnauthorized() {
+    setAuthenticated(false);
+    setOrders([]);
+    setPreview([]);
+  }
+
+  async function loadOrders() {
+    const res = await fetch("/api/orders");
+    if (res.status === 401) return handleUnauthorized();
+    const data: Order[] = await res.json();
+    setOrders(data);
+    setSelectedOrderId((current) => current || data[0]?.id || "");
+  }
+
+  async function logout() {
+    await fetch("/api/admin/logout", { method: "POST" });
+    handleUnauthorized();
+  }
 
   async function previewDispatch() {
     if (!selectedOrder) return;
@@ -722,19 +748,32 @@ function AdminPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ orderId: selectedOrder.id }),
     });
+    if (res.status === 401) return handleUnauthorized();
     setPreview(await res.json());
   }
 
   async function sendDispatch() {
     if (!selectedOrder) return;
-    await fetch("/api/dispatch/send", {
+    const sendRes = await fetch("/api/dispatch/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ orderId: selectedOrder.id }),
     });
-    const refreshed = await fetch("/api/orders").then((res) => res.json());
-    setOrders(refreshed);
+    if (sendRes.status === 401) return handleUnauthorized();
+    await loadOrders();
     await previewDispatch();
+  }
+
+  if (checkingSession) {
+    return (
+      <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+        <div className="rounded border border-slate-200 bg-white p-8 text-sm font-bold text-slate-600">Đang kiểm tra phiên AdminCP...</div>
+      </section>
+    );
+  }
+
+  if (!authenticated) {
+    return <AdminLogin onLoggedIn={() => { setAuthenticated(true); loadOrders(); }} />;
   }
 
   return (
@@ -745,10 +784,10 @@ function AdminPage() {
           <h1 className="mt-1 text-2xl font-black">Trung tâm điều hành Chuyển Phát 24H</h1>
           <p className="mt-1 text-sm font-medium text-slate-600">Dashboard, đơn hàng, điều phối Zalo, đối tác, bảng giá và nội dung SEO trong một khu quản trị rõ ràng.</p>
         </div>
-        <div className="flex items-center gap-2 rounded bg-amber-50 px-3 py-2 text-xs font-black text-amber-800">
+        <button onClick={logout} className="flex items-center gap-2 rounded border border-slate-300 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">
           <Lock className="h-4 w-4" />
-          Auth admin sẽ nối ở phase database
-        </div>
+          Đăng xuất AdminCP
+        </button>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
@@ -781,6 +820,64 @@ function AdminPage() {
           {activeModule === "settings" && <AdminPlaceholder title="Cài đặt hệ thống" icon={Settings} rows={["MAPS_PROVIDER=mock", "ZALO dispatch mock", "DATABASE_URL chưa nối"]} />}
         </div>
       </div>
+    </section>
+  );
+}
+
+function AdminLogin({ onLoggedIn }: { onLoggedIn: () => void }) {
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Không đăng nhập được.");
+      onLoggedIn();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Không đăng nhập được.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="mx-auto grid min-h-[calc(100vh-160px)] max-w-7xl place-items-center px-4 py-10 sm:px-6 lg:px-8">
+      <form onSubmit={submit} className="w-full max-w-md rounded border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-5">
+          <div className="flex h-11 w-11 items-center justify-center rounded bg-slate-950 text-white">
+            <Lock className="h-5 w-5" />
+          </div>
+          <h1 className="mt-4 text-2xl font-black">Đăng nhập AdminCP</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Khu quản trị đơn hàng, điều phối Zalo và dữ liệu vận hành.</p>
+        </div>
+        <div className="grid gap-4">
+          <label>
+            <FieldLabel>Tài khoản</FieldLabel>
+            <input value={username} onChange={(event) => setUsername(event.target.value)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>Mật khẩu</FieldLabel>
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+        </div>
+        {error && <div className="mt-4 rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>}
+        <button disabled={loading} className="mt-5 w-full rounded bg-red-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-60">
+          {loading ? "Đang đăng nhập..." : "Đăng nhập"}
+        </button>
+        <p className="mt-4 text-xs leading-5 text-slate-500">
+          Cấu hình bằng `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET` trong `.env` trên VPS.
+        </p>
+      </form>
     </section>
   );
 }

@@ -10,3 +10,5 @@ coverage/
 .env.local
 .env.production
 .vercel/
+storage/*.json
+storage/*.tmp

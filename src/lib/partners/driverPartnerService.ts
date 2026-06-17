@@ -1,7 +1,12 @@
 import type { PartnerApplication } from "../types";
 import { mockPartnerApplications, mockPartners } from "../../data/mockPartners";
+import { readJsonArray, writeJsonArray } from "../storage/jsonStore";
 
-let applications: PartnerApplication[] = [...mockPartnerApplications];
+let applications: PartnerApplication[] = readJsonArray<PartnerApplication>("partnerApplications.json", mockPartnerApplications);
+
+function persistApplications() {
+  writeJsonArray("partnerApplications.json", applications);
+}
 
 export function createPartnerApplication(payload: Omit<PartnerApplication, "id" | "status" | "createdAt">) {
   const application: PartnerApplication = {
@@ -11,6 +16,7 @@ export function createPartnerApplication(payload: Omit<PartnerApplication, "id" 
     createdAt: new Date().toISOString(),
   };
   applications = [application, ...applications];
+  persistApplications();
   return application;
 }
 
@@ -18,6 +24,7 @@ export function approvePartner(applicationId: string) {
   applications = applications.map((application) =>
     application.id === applicationId ? { ...application, status: "APPROVED" } : application,
   );
+  persistApplications();
   return applications.find((application) => application.id === applicationId);
 }
 
@@ -25,6 +32,7 @@ export function rejectPartner(applicationId: string) {
   applications = applications.map((application) =>
     application.id === applicationId ? { ...application, status: "REJECTED" } : application,
   );
+  persistApplications();
   return applications.find((application) => application.id === applicationId);
 }
 
@@ -39,4 +47,3 @@ export function addPartnerToGroup() {
 export function getPartnerApplications() {
   return applications;
 }
-

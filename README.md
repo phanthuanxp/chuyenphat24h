@@ -59,6 +59,10 @@ Quan trong nhat trong MVP:
 - `ZALO_APP_ID=`
 - `ZALO_APP_SECRET=`
 - `ZALO_WEBHOOK_SECRET=`
+- `ADMIN_USERNAME=admin`
+- `ADMIN_PASSWORD=...`
+- `ADMIN_SESSION_SECRET=...`
+- `CP24H_STORAGE_DIR=storage`
 
 Khong dua `.env` that vao git.
 
@@ -91,8 +95,7 @@ Phan dang mock:
 
 - Maps API thuc.
 - Zalo OA/group integration thuc.
-- Database.
-- Auth admin.
+- Database SQL thuc.
 - Logging/monitoring.
 
-Truoc khi van hanh that can noi database, auth admin, provider Maps server-side, webhook Zalo neu API ho tro va giam sat loi runtime.
+Ban hien tai da co AdminCP login bang env va storage JSON tren VPS. Truoc khi van hanh lon can noi database SQL, provider Maps server-side, webhook Zalo neu API ho tro va giam sat loi runtime.

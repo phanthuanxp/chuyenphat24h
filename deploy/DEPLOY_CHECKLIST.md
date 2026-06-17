@@ -3,6 +3,8 @@
 - [ ] Merge hoac checkout dung branch can deploy.
 - [ ] VPS co Node.js 20+, npm, git, nginx, pm2.
 - [ ] `.env` da tao tu `.env.example`.
+- [ ] `.env` da doi `ADMIN_PASSWORD` va `ADMIN_SESSION_SECRET`.
+- [ ] Thu muc `storage/` ton tai va khong bi xoa khi deploy.
 - [ ] `npm ci` thanh cong.
 - [ ] `npm run build` thanh cong.
 - [ ] `pm2 start ecosystem.config.cjs` thanh cong.

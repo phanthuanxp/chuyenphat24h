@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import express, { Request, Response } from "express";
+import crypto from "node:crypto";
 import path from "node:path";
 import { createServer as createViteServer } from "vite";
 import { mapsService } from "./src/lib/maps/mapsService";
@@ -19,8 +20,70 @@ dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
+const adminUsername = process.env.ADMIN_USERNAME || "admin";
+const adminPassword = process.env.ADMIN_PASSWORD || "change-me-now";
+const sessionSecret = process.env.ADMIN_SESSION_SECRET || "cp24h-dev-session-secret";
+const sessionCookieName = "cp24h_admin_session";
 
 app.use(express.json({ limit: "2mb" }));
+
+function parseCookies(cookieHeader = "") {
+  return cookieHeader.split(";").reduce<Record<string, string>>((cookies, pair) => {
+    const [rawKey, ...rawValue] = pair.trim().split("=");
+    if (!rawKey) return cookies;
+    cookies[rawKey] = decodeURIComponent(rawValue.join("="));
+    return cookies;
+  }, {});
+}
+
+function signSession(payload: string) {
+  return crypto.createHmac("sha256", sessionSecret).update(payload).digest("hex");
+}
+
+function createSessionToken(username: string) {
+  const expiresAt = Date.now() + 1000 * 60 * 60 * 12;
+  const payload = Buffer.from(JSON.stringify({ username, expiresAt })).toString("base64url");
+  return `${payload}.${signSession(payload)}`;
+}
+
+function verifySessionToken(token?: string) {
+  if (!token) return false;
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return false;
+  const expected = signSession(payload);
+  if (signature.length !== expected.length) return false;
+  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return false;
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return data.username === adminUsername && Number(data.expiresAt) > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function setAdminCookie(res: Response, token: string) {
+  const secureFlag = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.setHeader(
+    "Set-Cookie",
+    `${sessionCookieName}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200${secureFlag}`,
+  );
+}
+
+function clearAdminCookie(res: Response) {
+  res.setHeader("Set-Cookie", `${sessionCookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+}
+
+function isAdminAuthenticated(req: Request) {
+  const cookies = parseCookies(req.headers.cookie);
+  return verifySessionToken(cookies[sessionCookieName]);
+}
+
+function requireAdmin(req: Request, res: Response, next: () => void) {
+  if (!isAdminAuthenticated(req)) {
+    return res.status(401).json({ message: "Admin login required" });
+  }
+  next();
+}
 
 function asyncHandler<TReq extends Request = Request>(
   handler: (req: TReq, res: Response) => Promise<unknown>,
@@ -40,6 +103,24 @@ app.get("/api/health", (_req, res) => {
     stack: "Vite + React + Express",
     time: new Date().toISOString(),
   });
+});
+
+app.get("/api/admin/session", (req, res) => {
+  res.json({ authenticated: isAdminAuthenticated(req), username: isAdminAuthenticated(req) ? adminUsername : null });
+});
+
+app.post("/api/admin/login", (req, res) => {
+  const { username, password } = req.body;
+  if (username !== adminUsername || password !== adminPassword) {
+    return res.status(401).json({ message: "Sai tai khoan hoac mat khau admin." });
+  }
+  setAdminCookie(res, createSessionToken(username));
+  res.json({ authenticated: true, username });
+});
+
+app.post("/api/admin/logout", (_req, res) => {
+  clearAdminCookie(res);
+  res.json({ authenticated: false });
 });
 
 app.get("/api/maps/autocomplete", asyncHandler(async (req, res) => {
@@ -70,11 +151,11 @@ app.post("/api/orders/quick-create", asyncHandler(async (req, res) => {
   res.status(201).json(order);
 }));
 
-app.get("/api/orders", (_req, res) => {
+app.get("/api/orders", requireAdmin, (_req, res) => {
   res.json(getOrders());
 });
 
-app.get("/api/admin/summary", (_req, res) => {
+app.get("/api/admin/summary", requireAdmin, (_req, res) => {
   const orders = getOrders();
   res.json({
     totalOrders: orders.length,
@@ -92,7 +173,7 @@ app.get("/api/admin/summary", (_req, res) => {
   });
 });
 
-app.get("/api/admin/workspace", (_req, res) => {
+app.get("/api/admin/workspace", requireAdmin, (_req, res) => {
   res.json({
     orders: getOrders(),
     zaloGroups: getZaloGroups(),
@@ -105,7 +186,7 @@ app.get("/api/admin/workspace", (_req, res) => {
   });
 });
 
-app.patch("/api/orders/:id", (req, res) => {
+app.patch("/api/orders/:id", requireAdmin, (req, res) => {
   const order = updateOrder(req.params.id, req.body);
   if (!order) return res.status(404).json({ message: "Order not found" });
   res.json(order);
@@ -121,7 +202,7 @@ app.post("/api/orders/track", (req, res) => {
   res.json(tracking);
 });
 
-app.get("/api/orders/lookup", (req, res) => {
+app.get("/api/orders/lookup", requireAdmin, (req, res) => {
   const code = String(req.query.code || "").toLowerCase();
   const phone = String(req.query.phone || "");
   const orders = getOrders().filter((order) =>
@@ -131,13 +212,13 @@ app.get("/api/orders/lookup", (req, res) => {
   res.json(orders);
 });
 
-app.post("/api/dispatch/preview", (req, res) => {
+app.post("/api/dispatch/preview", requireAdmin, (req, res) => {
   const order = getOrders().find((item) => item.id === req.body.orderId || item.orderCode === req.body.orderCode);
   if (!order) return res.status(404).json({ message: "Order not found" });
   res.json(addDispatchPreviewLog(order));
 });
 
-app.post("/api/dispatch/send", (req, res) => {
+app.post("/api/dispatch/send", requireAdmin, (req, res) => {
   const order = getOrders().find((item) => item.id === req.body.orderId || item.orderCode === req.body.orderCode);
   if (!order) return res.status(404).json({ message: "Order not found" });
   const result = sendOrderToZaloGroups(order, "ADMIN");
@@ -145,15 +226,15 @@ app.post("/api/dispatch/send", (req, res) => {
   res.json(result);
 });
 
-app.get("/api/dispatch/logs", (_req, res) => {
+app.get("/api/dispatch/logs", requireAdmin, (_req, res) => {
   res.json(getDispatchLogs());
 });
 
-app.post("/api/bot/parse", (req, res) => {
+app.post("/api/bot/parse", requireAdmin, (req, res) => {
   res.json(parseDriverCommand(String(req.body.commandText || "")));
 });
 
-app.get("/api/zalo-groups", (_req, res) => {
+app.get("/api/zalo-groups", requireAdmin, (_req, res) => {
   res.json(getZaloGroups());
 });
 
@@ -161,15 +242,15 @@ app.get("/api/routes", (_req, res) => {
   res.json(mockRoutes);
 });
 
-app.get("/api/pricing-rules", (_req, res) => {
+app.get("/api/pricing-rules", requireAdmin, (_req, res) => {
   res.json(mockPricingRules);
 });
 
-app.get("/api/partners", (_req, res) => {
+app.get("/api/partners", requireAdmin, (_req, res) => {
   res.json(mockPartners);
 });
 
-app.get("/api/partner-applications", (_req, res) => {
+app.get("/api/partner-applications", requireAdmin, (_req, res) => {
   res.json(getPartnerApplications());
 });
 

@@ -31,6 +31,7 @@ Do not edit .env, nginx, firewall, or system packages unless I explicitly approv
 ## Safety Rules
 
 - Do not expose `.env`.
+- Do not overwrite or delete `storage/`.
 - Do not run `npm audit fix --force` during deploy.
 - Do not change Nginx or SSL during routine deploys.
 - Do not use root for normal app updates if a deploy user exists.
@@ -45,4 +46,3 @@ Do not edit .env, nginx, firewall, or system packages unless I explicitly approv
 5. Starts or reloads PM2.
 6. Saves PM2 state.
 7. Calls local `/api/health`.
-

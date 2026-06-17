@@ -19,6 +19,7 @@ echo "[deploy] building app"
 npm run build
 
 mkdir -p logs
+mkdir -p storage
 
 if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
   echo "[deploy] reloading pm2 app $APP_NAME"
@@ -34,4 +35,3 @@ echo "[deploy] healthcheck"
 curl --fail --silent --show-error "http://127.0.0.1:${PORT:-3000}/api/health"
 echo
 echo "[deploy] done"
-
