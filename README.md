@@ -1,20 +1,88 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Chuyen Phat 24H
 
-# Run and deploy your AI Studio app
+Web app MVP cho dich vu chuyen phat hoa toc lien tinh tu Ha Noi di cac tinh va tu tinh ve Ha Noi.
 
-This contains everything you need to run your app locally.
+Stack hien tai:
 
-View your app in AI Studio: https://ai.studio/apps/91857dc3-afdb-4388-9dcd-6ed729ff5a95
+- Vite + React + TypeScript cho frontend SPA.
+- Express + TypeScript cho API noi bo.
+- Mock Maps provider, mock Zalo dispatch, in-memory orders.
 
-## Run Locally
+## Cai dat
 
-**Prerequisites:**  Node.js
+```bash
+npm install
+cp .env.example .env
+```
 
+## Chay local
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```bash
+npm run dev
+```
+
+Mac dinh app chay tai `http://localhost:3000`.
+
+## Build va chay production tren VPS
+
+```bash
+npm run build
+npm run start
+```
+
+Nen dung PM2 tren VPS:
+
+```bash
+pm2 start dist/server.cjs --name chuyenphat24h
+pm2 save
+```
+
+## Bien moi truong
+
+Quan trong nhat trong MVP:
+
+- `PORT=3000`
+- `MAPS_PROVIDER=mock`
+- `MAPS_API_BASE_URL=`
+- `MAPS_API_KEY=`
+- `DATABASE_URL=`
+- `ZALO_APP_ID=`
+- `ZALO_APP_SECRET=`
+- `ZALO_WEBHOOK_SECRET=`
+
+Khong dua `.env` that vao git.
+
+## Module chinh
+
+- `src/lib/types`: domain model cho Order, Customer, ZaloRouteGroup, DriverPartner, PricingRule.
+- `src/lib/maps`: Maps adapter, mock provider, real provider placeholder, route classifier.
+- `src/lib/orders`: tao don nhanh, order service in-memory.
+- `src/lib/pricing`: dinh gia va manual quote rules.
+- `src/lib/dispatch`: AI dispatch mock, preview va send mock vao group Zalo.
+- `src/lib/zalo`: group service va bot command parser.
+- `src/lib/tracking`: public tracking, an du lieu noi bo.
+- `src/lib/partners`: dang ky doi tac doi xe.
+- `src/data`: mock orders, routes, pricing, Zalo groups, partners, maps.
+
+## Luong nghiep vu MVP
+
+1. Khach tao don tren website.
+2. Frontend goi API noi bo de autocomplete dia chi mock Maps.
+3. API phan tuyen, tinh khoang cach mock, uoc tinh gia.
+4. Don duoc luu in-memory va co `orderCode`.
+5. Admin xem dashboard, preview tin ban don vao group Zalo.
+6. Mock send tao dispatch log va cap nhat trang thai.
+7. Tai xe co the dung cu phap mock nhu `NHAN CP24H-xxxx`.
+8. Khach tra cuu public bang ma don va so dien thoai.
+
+## Ghi chu production
+
+Phan dang mock:
+
+- Maps API thuc.
+- Zalo OA/group integration thuc.
+- Database.
+- Auth admin.
+- Logging/monitoring.
+
+Truoc khi van hanh that can noi database, auth admin, provider Maps server-side, webhook Zalo neu API ho tro va giam sat loi runtime.

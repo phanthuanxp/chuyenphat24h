@@ -1,0 +1,120 @@
+export enum OrderSource {
+  WEBSITE = "WEBSITE",
+  ADMIN = "ADMIN",
+  HOTLINE = "HOTLINE",
+  ZALO_CUSTOMER = "ZALO_CUSTOMER",
+  AI_BOT = "AI_BOT",
+}
+
+export enum OrderStatus {
+  NEW = "NEW",
+  PENDING_CONFIRMATION = "PENDING_CONFIRMATION",
+  QUOTED = "QUOTED",
+  CUSTOMER_CONFIRMED = "CUSTOMER_CONFIRMED",
+  READY_TO_DISPATCH = "READY_TO_DISPATCH",
+  DISPATCHED_TO_ZALO = "DISPATCHED_TO_ZALO",
+  DRIVER_CLAIMED = "DRIVER_CLAIMED",
+  WAITING_ADMIN_APPROVAL = "WAITING_ADMIN_APPROVAL",
+  DRIVER_ASSIGNED = "DRIVER_ASSIGNED",
+  PICKUP_IN_PROGRESS = "PICKUP_IN_PROGRESS",
+  PICKED_UP = "PICKED_UP",
+  IN_TRANSIT = "IN_TRANSIT",
+  ARRIVED_DESTINATION = "ARRIVED_DESTINATION",
+  DELIVERY_IN_PROGRESS = "DELIVERY_IN_PROGRESS",
+  DELIVERED = "DELIVERED",
+  ISSUE_REPORTED = "ISSUE_REPORTED",
+  REDISPATCH_REQUIRED = "REDISPATCH_REQUIRED",
+  CANCELLED = "CANCELLED",
+  RETURNED = "RETURNED",
+  ASSIGNING_DRIVER = "READY_TO_DISPATCH",
+  ASSIGNED = "DRIVER_ASSIGNED",
+}
+
+export enum DispatchStatus {
+  NOT_DISPATCHED = "NOT_DISPATCHED",
+  READY_TO_DISPATCH = "READY_TO_DISPATCH",
+  DISPATCHED_TO_ZALO = "DISPATCHED_TO_ZALO",
+  DRIVER_CLAIMED = "DRIVER_CLAIMED",
+  WAITING_ADMIN_APPROVAL = "WAITING_ADMIN_APPROVAL",
+  DRIVER_ASSIGNED = "DRIVER_ASSIGNED",
+  NO_DRIVER_FOUND = "NO_DRIVER_FOUND",
+  REDISPATCH_REQUIRED = "REDISPATCH_REQUIRED",
+  CANCELLED = "CANCELLED",
+}
+
+export enum Direction {
+  HANOI_TO_PROVINCE = "HANOI_TO_PROVINCE",
+  PROVINCE_TO_HANOI = "PROVINCE_TO_HANOI",
+  HANOI_LOCAL = "HANOI_LOCAL",
+  PROVINCE_TO_PROVINCE = "PROVINCE_TO_PROVINCE",
+  UNSUPPORTED = "UNSUPPORTED",
+}
+
+export enum RouteGroup {
+  NEAR_HANOI_2_4H = "NEAR_HANOI_2_4H",
+  SAME_DAY = "SAME_DAY",
+  NORTHWEST_MANUAL = "NORTHWEST_MANUAL",
+  THANH_HOA_NGHE_AN_24H = "THANH_HOA_NGHE_AN_24H",
+  MANUAL_REVIEW = "MANUAL_REVIEW",
+  UNSUPPORTED = "UNSUPPORTED",
+}
+
+export enum ServiceLevel {
+  EXPRESS_2_4H = "EXPRESS_2_4H",
+  SAME_DAY = "SAME_DAY",
+  WITHIN_24H = "WITHIN_24H",
+  MANUAL_CONFIRMATION = "MANUAL_CONFIRMATION",
+  UNSUPPORTED = "UNSUPPORTED",
+}
+
+export enum ItemType {
+  DOCUMENT = "DOCUMENT",
+  SMALL_PACKAGE = "SMALL_PACKAGE",
+  SHOP_GOODS = "SHOP_GOODS",
+  ELECTRONICS = "ELECTRONICS",
+  FRAGILE = "FRAGILE",
+  MOTORBIKE = "MOTORBIKE",
+  TV_FRIDGE_WASHER = "TV_FRIDGE_WASHER",
+  BULKY = "BULKY",
+  OVERSIZED = "OVERSIZED",
+}
+
+export enum Visibility {
+  PUBLIC_CUSTOMER = "PUBLIC_CUSTOMER",
+  ADMIN_ONLY = "ADMIN_ONLY",
+  DRIVER_VISIBLE = "DRIVER_VISIBLE",
+}
+
+export const ITEM_TYPE_LABELS: Record<ItemType, string> = {
+  [ItemType.DOCUMENT]: "Giay to / ho so / chung tu",
+  [ItemType.SMALL_PACKAGE]: "Hang nho",
+  [ItemType.SHOP_GOODS]: "Hang shop",
+  [ItemType.ELECTRONICS]: "Hang dien tu",
+  [ItemType.FRAGILE]: "Hang de vo",
+  [ItemType.MOTORBIKE]: "Xe may",
+  [ItemType.TV_FRIDGE_WASHER]: "Tivi / tu lanh / may giat",
+  [ItemType.BULKY]: "Hang cong kenh",
+  [ItemType.OVERSIZED]: "Hang qua kho",
+};
+
+export const STATUS_LABELS: Record<OrderStatus, string> = {
+  [OrderStatus.NEW]: "Moi tao",
+  [OrderStatus.PENDING_CONFIRMATION]: "Cho xac nhan",
+  [OrderStatus.QUOTED]: "Da bao gia",
+  [OrderStatus.CUSTOMER_CONFIRMED]: "Khach da xac nhan",
+  [OrderStatus.READY_TO_DISPATCH]: "San sang dieu phoi",
+  [OrderStatus.DISPATCHED_TO_ZALO]: "Da ban vao Zalo",
+  [OrderStatus.DRIVER_CLAIMED]: "Co tai xe nhan",
+  [OrderStatus.WAITING_ADMIN_APPROVAL]: "Cho duyet tai xe",
+  [OrderStatus.DRIVER_ASSIGNED]: "Da gan tai xe",
+  [OrderStatus.PICKUP_IN_PROGRESS]: "Dang lay hang",
+  [OrderStatus.PICKED_UP]: "Da lay hang",
+  [OrderStatus.IN_TRANSIT]: "Dang van chuyen",
+  [OrderStatus.ARRIVED_DESTINATION]: "Da den tinh nhan",
+  [OrderStatus.DELIVERY_IN_PROGRESS]: "Dang giao hang",
+  [OrderStatus.DELIVERED]: "Da giao thanh cong",
+  [OrderStatus.ISSUE_REPORTED]: "Co su co",
+  [OrderStatus.REDISPATCH_REQUIRED]: "Can ban lai don",
+  [OrderStatus.CANCELLED]: "Da huy",
+  [OrderStatus.RETURNED]: "Hoan hang",
+};
