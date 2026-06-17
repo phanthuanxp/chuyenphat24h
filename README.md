@@ -37,6 +37,16 @@ pm2 start dist/server.cjs --name chuyenphat24h
 pm2 save
 ```
 
+Khuyen nghi dung file PM2 san co:
+
+```bash
+mkdir -p logs
+pm2 start ecosystem.config.cjs
+pm2 save
+```
+
+Huong dan day du nam trong `deploy/VPS_DEPLOY.md`.
+
 ## Bien moi truong
 
 Quan trong nhat trong MVP:
