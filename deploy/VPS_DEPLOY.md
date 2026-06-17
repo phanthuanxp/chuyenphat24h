@@ -135,6 +135,18 @@ pm2 restart chuyenphat24h
 pm2 save
 ```
 
+Hoac dung script deploy co dinh cho OpenClaw/agent:
+
+```bash
+APP_DIR=/var/www/chuyenphat24h BRANCH=main APP_NAME=chuyenphat24h bash deploy/deploy.sh
+```
+
+Neu dang deploy branch nang cap truoc khi merge:
+
+```bash
+APP_DIR=/var/www/chuyenphat24h BRANCH=codex/production-core-upgrade APP_NAME=chuyenphat24h bash deploy/deploy.sh
+```
+
 ## 10. Healthcheck
 
 ```bash
@@ -159,4 +171,3 @@ Ket qua dung co dang:
 - Admin chua co auth.
 
 Truoc khi chay production that can uu tien: database + auth admin + logging.
-

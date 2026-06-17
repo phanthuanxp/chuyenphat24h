@@ -14,4 +14,4 @@
 - [ ] Da test tao don nhanh tren website.
 - [ ] Da test tra cuu don.
 - [ ] Da test admin preview dieu phoi Zalo mock.
-
+- [ ] Neu dung OpenClaw, chi chay `deploy/deploy.sh` va khong sua `.env`/Nginx khi chua duoc duyet.

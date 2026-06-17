@@ -74,6 +74,37 @@ app.get("/api/orders", (_req, res) => {
   res.json(getOrders());
 });
 
+app.get("/api/admin/summary", (_req, res) => {
+  const orders = getOrders();
+  res.json({
+    totalOrders: orders.length,
+    pendingConfirmation: orders.filter((order) => order.status === "PENDING_CONFIRMATION").length,
+    manualQuoteRequired: orders.filter((order) => order.manualQuoteRequired).length,
+    readyForDispatch: orders.filter((order) => order.dispatchStatus === "NOT_DISPATCHED").length,
+    dispatchedToZalo: orders.filter((order) => order.dispatchStatus === "DISPATCHED_TO_ZALO").length,
+    inTransit: orders.filter((order) => ["IN_TRANSIT", "DELIVERY_IN_PROGRESS"].includes(order.status)).length,
+    completed: orders.filter((order) => order.status === "DELIVERED").length,
+    issues: orders.filter((order) => order.status === "ISSUE_REPORTED").length,
+    zaloGroups: getZaloGroups().length,
+    partners: mockPartners.length,
+    pricingRules: mockPricingRules.length,
+    generatedAt: new Date().toISOString(),
+  });
+});
+
+app.get("/api/admin/workspace", (_req, res) => {
+  res.json({
+    orders: getOrders(),
+    zaloGroups: getZaloGroups(),
+    routes: mockRoutes,
+    pricingRules: mockPricingRules,
+    partners: mockPartners,
+    partnerApplications: getPartnerApplications(),
+    seoPages,
+    dispatchLogs: getDispatchLogs(),
+  });
+});
+
 app.patch("/api/orders/:id", (req, res) => {
   const order = updateOrder(req.params.id, req.body);
   if (!order) return res.status(404).json({ message: "Order not found" });

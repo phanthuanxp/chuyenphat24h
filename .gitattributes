@@ -1,0 +1,7 @@
+*.sh text eol=lf
+*.md text
+*.ts text
+*.tsx text
+*.js text
+*.cjs text
+*.conf text
