@@ -5,12 +5,15 @@ import path from "node:path";
 import { createServer as createViteServer } from "vite";
 import { mapsService } from "./src/lib/maps/mapsService";
 import { classifyQuickOrder, createQuickOrderFromHomeForm } from "./src/lib/orders/quickOrderService";
-import { getOrders, updateOrder } from "./src/lib/orders/orderService";
+import { addTimelineEvent, assignDriverToOrder, getOrders, updateOrder } from "./src/lib/orders/orderService";
 import { getPublicTrackingInfo } from "./src/lib/tracking/trackingService";
 import { addDispatchPreviewLog, getDispatchLogs, sendOrderToZaloGroups } from "./src/lib/dispatch/dispatchService";
 import { parseDriverCommand } from "./src/lib/zalo/botCommandParser";
 import { getZaloGroups } from "./src/lib/zalo/zaloGroupService";
 import { getPartnerApplications, createPartnerApplication } from "./src/lib/partners/driverPartnerService";
+import { createDriverCandidateFromPartner, findNearestVehicleForOrder } from "./src/lib/partners/nearestVehicleService";
+import { getNotificationLogs, logTelegramCommand, mockSendCustomerZaloOrderApproved, mockSendCustomerZaloVehicleAssigned } from "./src/lib/notification/notificationService";
+import { DispatchStatus, OrderStatus, Visibility } from "./src/lib/constants/enums";
 import { mockRoutes } from "./src/data/mockRoutes";
 import { mockPricingRules } from "./src/data/mockPricing";
 import { mockPartners } from "./src/data/mockPartners";
@@ -25,7 +28,64 @@ const adminPassword = process.env.ADMIN_PASSWORD || "change-me-now";
 const sessionSecret = process.env.ADMIN_SESSION_SECRET || "cp24h-dev-session-secret";
 const sessionCookieName = "cp24h_admin_session";
 
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "10mb" }));
+
+function findOrder(orderIdOrCode: string) {
+  return getOrders().find((item) => item.id === orderIdOrCode || item.orderCode.toLowerCase() === orderIdOrCode.toLowerCase());
+}
+
+function approveOrder(orderIdOrCode: string, finalPrice: number, note?: string, actor = "admin") {
+  const order = findOrder(orderIdOrCode);
+  if (!order) return null;
+  const updated = updateOrder(order.id, {
+    finalPrice,
+    status: OrderStatus.CUSTOMER_CONFIRMED,
+    dispatchStatus: DispatchStatus.READY_TO_DISPATCH,
+    customerTrackingNote: `Don da duoc dieu hanh duyet. Gia cuoc chinh thuc: ${finalPrice.toLocaleString("vi-VN")}d. He thong dang tim xe phu hop.`,
+    internalNotes: [order.internalNotes, note].filter(Boolean).join("\n"),
+  });
+  addTimelineEvent(order.id, {
+    eventType: "ORDER_APPROVED",
+    title: "Don da duoc duyet",
+    description: `Gia cuoc chinh thuc: ${finalPrice.toLocaleString("vi-VN")}d.`,
+    visibility: Visibility.PUBLIC_CUSTOMER,
+    createdBy: actor,
+  });
+  if (updated) mockSendCustomerZaloOrderApproved(updated);
+  return findOrder(order.id);
+}
+
+function assignNearestVehicle(orderIdOrCode: string, actor = "admin") {
+  const order = findOrder(orderIdOrCode);
+  if (!order) return { order: null, vehicle: null };
+  const vehicle = findNearestVehicleForOrder(order);
+  if (!vehicle) {
+    const updated = updateOrder(order.id, {
+      dispatchStatus: DispatchStatus.NO_DRIVER_FOUND,
+      customerTrackingNote: "Dieu hanh dang tiep tuc tim xe phu hop cho don hang.",
+    });
+    return { order: updated, vehicle: null };
+  }
+  const candidate = createDriverCandidateFromPartner(vehicle);
+  updateOrder(order.id, { driverCandidates: [candidate, ...order.driverCandidates] });
+  const assigned = assignDriverToOrder(order.id, candidate);
+  if (assigned) {
+    addTimelineEvent(order.id, {
+      eventType: "VEHICLE_ASSIGNED",
+      title: "Da co xe nhan don",
+      description: `${assigned.assignedDriverName} - ${assigned.assignedVehicleType} ${assigned.assignedVehiclePlate || ""}.`,
+      visibility: Visibility.PUBLIC_CUSTOMER,
+      createdBy: actor,
+    });
+    const latest = updateOrder(order.id, {
+      assignedDriverVisibleToCustomer: true,
+      customerTrackingNote: "Da co xe nhan don. Thong tin xe da duoc gui qua Zalo cua khach.",
+    });
+    if (latest) mockSendCustomerZaloVehicleAssigned(latest);
+    return { order: findOrder(order.id), vehicle };
+  }
+  return { order: null, vehicle };
+}
 
 function parseCookies(cookieHeader = "") {
   return cookieHeader.split(";").reduce<Record<string, string>>((cookies, pair) => {
@@ -153,6 +213,60 @@ app.post("/api/orders/quick-create", asyncHandler(async (req, res) => {
 
 app.get("/api/orders", requireAdmin, (_req, res) => {
   res.json(getOrders());
+});
+
+app.get("/api/notification/logs", requireAdmin, (_req, res) => {
+  res.json(getNotificationLogs());
+});
+
+app.post("/api/admin/orders/:id/approve", requireAdmin, (req, res) => {
+  const finalPrice = Number(req.body.finalPrice);
+  if (!Number.isFinite(finalPrice) || finalPrice <= 0) {
+    return res.status(400).json({ message: "finalPrice must be a positive number" });
+  }
+  const order = approveOrder(req.params.id, finalPrice, req.body.note, "admin");
+  if (!order) return res.status(404).json({ message: "Order not found" });
+  res.json(order);
+});
+
+app.post("/api/admin/orders/:id/assign-nearest-vehicle", requireAdmin, (req, res) => {
+  const result = assignNearestVehicle(req.params.id, "admin");
+  if (!result.order) return res.status(404).json({ message: "Order not found" });
+  res.json(result);
+});
+
+app.post("/api/telegram/webhook", (req, res) => {
+  const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const receivedSecret = String(req.query.secret || req.headers["x-telegram-webhook-secret"] || "");
+  if (expectedSecret && expectedSecret !== receivedSecret) {
+    return res.status(401).json({ message: "Invalid Telegram webhook secret" });
+  }
+
+  const commandText = String(req.body.text || req.body.message?.text || "").trim();
+  const [command, orderCode, priceText] = commandText.split(/\s+/);
+  if (!command || !orderCode) {
+    return res.status(400).json({ message: "Use: DUYET <orderCode> <finalPrice> or TIMXE <orderCode>" });
+  }
+
+  const normalizedCommand = command.toUpperCase();
+  logTelegramCommand(orderCode, commandText);
+  if (["DUYET", "GIA"].includes(normalizedCommand)) {
+    const finalPrice = Number(priceText);
+    if (!Number.isFinite(finalPrice) || finalPrice <= 0) {
+      return res.status(400).json({ message: "Missing valid final price" });
+    }
+    const order = approveOrder(orderCode, finalPrice, `Telegram command: ${commandText}`, "telegram");
+    if (!order) return res.status(404).json({ message: "Order not found" });
+    return res.json({ ok: true, action: "APPROVED", order });
+  }
+
+  if (normalizedCommand === "TIMXE") {
+    const result = assignNearestVehicle(orderCode, "telegram");
+    if (!result.order) return res.status(404).json({ message: "Order not found" });
+    return res.json({ ok: true, action: "VEHICLE_ASSIGNED", ...result });
+  }
+
+  return res.status(400).json({ message: "Unsupported Telegram command" });
 });
 
 app.get("/api/admin/summary", requireAdmin, (_req, res) => {

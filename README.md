@@ -56,9 +56,13 @@ Quan trong nhat trong MVP:
 - `MAPS_API_BASE_URL=`
 - `MAPS_API_KEY=`
 - `DATABASE_URL=`
+- `TELEGRAM_BOT_TOKEN=`
+- `TELEGRAM_ADMIN_CHAT_ID=`
+- `TELEGRAM_WEBHOOK_SECRET=`
 - `ZALO_APP_ID=`
 - `ZALO_APP_SECRET=`
 - `ZALO_WEBHOOK_SECRET=`
+- `ZALO_CUSTOMER_NOTIFY_MODE=mock`
 - `ADMIN_USERNAME=admin`
 - `ADMIN_PASSWORD=...`
 - `ADMIN_SESSION_SECRET=...`
@@ -82,12 +86,19 @@ Khong dua `.env` that vao git.
 
 1. Khach tao don tren website.
 2. Frontend goi API noi bo de autocomplete dia chi mock Maps.
-3. API phan tuyen, tinh khoang cach mock, uoc tinh gia.
-4. Don duoc luu in-memory va co `orderCode`.
-5. Admin xem dashboard, preview tin ban don vao group Zalo.
-6. Mock send tao dispatch log va cap nhat trang thai.
-7. Tai xe co the dung cu phap mock nhu `NHAN CP24H-xxxx`.
-8. Khach tra cuu public bang ma don va so dien thoai.
+3. API phan tuyen, tinh khoang cach mock va tao `quotedPrice` la gia de xuat.
+4. Don duoc luu vao JSON storage, kem anh san pham va co `orderCode`.
+5. He thong tao notification log Telegram admin va bat dau goi y xe gan nhat.
+6. Admin duyet gia cuoi trong AdminCP hoac qua Telegram webhook mock: `DUYET CP24H-xxxx 250000`.
+7. Sau khi duyet, he thong tao log gui Zalo khach ve gia chinh thuc.
+8. Admin bam tim/giao xe gan nhat hoac Telegram `TIMXE CP24H-xxxx`; he thong gan xe va tao log gui Zalo khach.
+9. Khach tra cuu public bang ma don va so dien thoai.
+
+## Telegram/Zalo mock workflow
+
+- `POST /api/telegram/webhook?secret=...` nhan lenh `DUYET`, `GIA`, `TIMXE`.
+- `GET /api/notification/logs` trong AdminCP/API tra ve log Telegram/Zalo mock.
+- Khi co token that, thay cac ham trong `src/lib/notification/notificationService.ts` bang Telegram Bot API va Zalo OA API.
 
 ## Ghi chu production
 

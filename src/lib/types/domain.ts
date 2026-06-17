@@ -202,6 +202,18 @@ export interface BotCommandLog {
   createdAt: string;
 }
 
+export interface NotificationLog {
+  id: string;
+  channel: "TELEGRAM_ADMIN" | "ZALO_CUSTOMER" | "SYSTEM";
+  eventType: "NEW_ORDER" | "ORDER_APPROVED" | "VEHICLE_SEARCH_STARTED" | "VEHICLE_ASSIGNED" | "TELEGRAM_COMMAND";
+  orderId?: string;
+  orderCode?: string;
+  recipient?: string;
+  message: string;
+  status: "MOCK_SENT" | "SENT" | "FAILED";
+  createdAt: string;
+}
+
 export interface PricingRule {
   id: string;
   originProvince: string;
@@ -293,7 +305,7 @@ export interface QuickOrderPayload {
   senderName?: string;
   receiverName?: string;
   itemDescription?: string;
+  itemImages?: string[];
   packageCount?: number;
   weight?: number;
 }
-

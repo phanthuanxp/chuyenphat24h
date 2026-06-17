@@ -10,6 +10,7 @@ import {
   Clock3,
   ExternalLink,
   FileSearch,
+  ImagePlus,
   Layers3,
   LayoutDashboard,
   Lock,
@@ -359,10 +360,42 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
   const [itemType, setItemType] = useState<ItemType>(ItemType.DOCUMENT);
   const [expectedDeliveryTime, setExpectedDeliveryTime] = useState("Trong 2-4 giờ");
   const [customerPhone, setCustomerPhone] = useState("0912345678");
+  const [itemDescription, setItemDescription] = useState("Ho so can giao gap");
+  const [packageCount, setPackageCount] = useState(1);
+  const [weight, setWeight] = useState(1);
+  const [itemImages, setItemImages] = useState<string[]>([]);
   const [estimate, setEstimate] = useState<RouteEstimate | null>(null);
   const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  async function handleImageUpload(files: FileList | null) {
+    if (!files?.length) return;
+    const selectedFiles = Array.from(files).slice(0, 4 - itemImages.length);
+    const encodedImages = await Promise.all(
+      selectedFiles.map((file) => new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("Khong doc duoc anh san pham"));
+        reader.readAsDataURL(file);
+      })),
+    );
+    setItemImages((current) => [...current, ...encodedImages].slice(0, 4));
+  }
+
+  const orderPayload = {
+    pickupAddress: pickupQuery,
+    pickupPlaceId,
+    deliveryAddress: deliveryQuery,
+    deliveryPlaceId,
+    itemType,
+    expectedDeliveryTime,
+    customerPhone,
+    itemDescription,
+    packageCount,
+    weight,
+    itemImages,
+  };
 
   useEffect(() => {
     fetch(`/api/maps/autocomplete?q=${encodeURIComponent(pickupQuery)}`)
@@ -386,15 +419,7 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
       const res = await fetch("/api/orders/estimate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pickupAddress: pickupQuery,
-          pickupPlaceId,
-          deliveryAddress: deliveryQuery,
-          deliveryPlaceId,
-          itemType,
-          expectedDeliveryTime,
-          customerPhone,
-        }),
+        body: JSON.stringify(orderPayload),
       });
       if (!res.ok) throw new Error("Không thể ước tính tuyến");
       setEstimate(await res.json());
@@ -412,15 +437,7 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
       const res = await fetch("/api/orders/quick-create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pickupAddress: pickupQuery,
-          pickupPlaceId,
-          deliveryAddress: deliveryQuery,
-          deliveryPlaceId,
-          itemType,
-          expectedDeliveryTime,
-          customerPhone,
-        }),
+        body: JSON.stringify(orderPayload),
       });
       if (!res.ok) throw new Error("Không thể tạo đơn");
       setCreatedOrder(await res.json());
@@ -469,6 +486,38 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
           <FieldLabel>Số điện thoại/Zalo khách</FieldLabel>
           <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
         </label>
+        <label className="block sm:col-span-2">
+          <FieldLabel>Mo ta hang hoa</FieldLabel>
+          <textarea value={itemDescription} onChange={(event) => setItemDescription(event.target.value)} rows={3} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+        </label>
+        <label className="block">
+          <FieldLabel>So kien</FieldLabel>
+          <input type="number" min={1} value={packageCount} onChange={(event) => setPackageCount(Number(event.target.value) || 1)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+        </label>
+        <label className="block">
+          <FieldLabel>Can nang uoc tinh (kg)</FieldLabel>
+          <input type="number" min={0.1} step={0.1} value={weight} onChange={(event) => setWeight(Number(event.target.value) || 1)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+        </label>
+        <div className="sm:col-span-2">
+          <FieldLabel>Hinh anh san pham</FieldLabel>
+          <label className="mt-1 flex cursor-pointer items-center justify-center gap-2 rounded border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm font-black text-slate-700 hover:bg-amber-50">
+            <ImagePlus className="h-4 w-4" />
+            Tai anh hang hoa (toi da 4 anh)
+            <input type="file" accept="image/*" multiple onChange={(event) => handleImageUpload(event.target.files)} className="sr-only" />
+          </label>
+          {itemImages.length > 0 && (
+            <div className="mt-3 grid grid-cols-4 gap-2">
+              {itemImages.map((image, index) => (
+                <div key={image.slice(0, 40)} className="relative aspect-square overflow-hidden rounded border border-slate-200 bg-white">
+                  <img src={image} alt={`Anh san pham ${index + 1}`} className="h-full w-full object-cover" />
+                  <button type="button" onClick={() => setItemImages((current) => current.filter((_, imageIndex) => imageIndex !== index))} className="absolute right-1 top-1 rounded bg-white/90 px-2 py-1 text-xs font-black text-red-700 shadow">
+                    Xoa
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-5 flex flex-col gap-3 sm:flex-row">
@@ -538,7 +587,7 @@ function RouteEstimateCard({ estimate }: { estimate: RouteEstimate }) {
         <Info label="Chiều vận chuyển" value={estimate.direction} />
         <Info label="Thời gian dự kiến" value={estimate.serviceLevel} />
         <Info label="Khoảng cách" value={estimate.distanceKm ? `${estimate.distanceKm} km` : "Đang kiểm tra"} />
-        <Info label="Giá tạm tính" value={estimate.estimatedPrice ? `${estimate.estimatedPrice.toLocaleString("vi-VN")}đ` : "Báo giá thủ công"} />
+        <Info label="Giá đề xuất" value={estimate.estimatedPrice ? `${estimate.estimatedPrice.toLocaleString("vi-VN")}đ` : "Chờ điều hành duyệt"} />
       </div>
     </div>
   );
@@ -549,6 +598,9 @@ function OrderCreatedCard({ order }: { order: Order }) {
     <div className="mt-5 rounded border border-emerald-200 bg-emerald-50 p-4">
       <h3 className="text-lg font-black text-emerald-800">Đã tiếp nhận yêu cầu gửi hàng</h3>
       <p className="mt-2 text-sm font-semibold text-slate-700">Mã đơn: <span className="font-black">{order.orderCode}</span></p>
+      <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">
+        Don da duoc gui ve bot Telegram cho dieu hanh. Gia tren website la gia de xuat; khi duyet gia va co xe nhan don, he thong se gui thong tin qua Zalo cua khach.
+      </p>
       <div className="mt-4 flex flex-col gap-3 sm:flex-row">
         <a href={`tel:${hotline.replace(/\s/g, "")}`} className="rounded bg-emerald-700 px-4 py-2 text-center text-sm font-black text-white">
           Gọi/Zalo {hotline}
@@ -764,6 +816,27 @@ function AdminPage() {
     await previewDispatch();
   }
 
+  async function approveSelectedOrder(finalPrice: number, note: string) {
+    if (!selectedOrder) return;
+    const res = await fetch(`/api/admin/orders/${selectedOrder.id}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ finalPrice, note }),
+    });
+    if (res.status === 401) return handleUnauthorized();
+    await loadOrders();
+  }
+
+  async function assignNearestVehicleToSelectedOrder() {
+    if (!selectedOrder) return;
+    const res = await fetch(`/api/admin/orders/${selectedOrder.id}/assign-nearest-vehicle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (res.status === 401) return handleUnauthorized();
+    await loadOrders();
+  }
+
   if (checkingSession) {
     return (
       <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
@@ -809,7 +882,7 @@ function AdminPage() {
 
         <div className="min-w-0">
           {activeModule === "dashboard" && <AdminDashboard orders={orders} />}
-          {activeModule === "orders" && <AdminOrders orders={orders} selectedOrderId={selectedOrderId} setSelectedOrderId={setSelectedOrderId} selectedOrder={selectedOrder} />}
+          {activeModule === "orders" && <AdminOrders orders={orders} selectedOrderId={selectedOrderId} setSelectedOrderId={setSelectedOrderId} selectedOrder={selectedOrder} onApprove={approveSelectedOrder} onAssignVehicle={assignNearestVehicleToSelectedOrder} />}
           {activeModule === "dispatch" && <AdminDispatch selectedOrder={selectedOrder} preview={preview} previewDispatch={previewDispatch} sendDispatch={sendDispatch} />}
           {activeModule === "zalo" && <AdminPlaceholder title="Nhóm Zalo tuyến" icon={MessageSquare} rows={["CP24H Hà Nội - Bắc Ninh", "CP24H Hà Nội - Hải Phòng", "CP24H Tây Bắc - Lào Cai", "CP24H Hàng cồng kềnh / xe máy"]} />}
           {activeModule === "routes" && <AdminPlaceholder title="Tuyến xe" icon={RouteIcon} rows={["Tuyến gần Hà Nội", "Tuyến trong ngày", "Tuyến Tây Bắc cần xác nhận", "Thanh Hóa / Nghệ An 24h"]} />}
@@ -919,11 +992,15 @@ function AdminOrders({
   selectedOrderId,
   setSelectedOrderId,
   selectedOrder,
+  onApprove,
+  onAssignVehicle,
 }: {
   orders: Order[];
   selectedOrderId: string;
   setSelectedOrderId: (id: string) => void;
   selectedOrder?: Order;
+  onApprove: (finalPrice: number, note: string) => void;
+  onAssignVehicle: () => void;
 }) {
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_420px]">
@@ -949,19 +1026,37 @@ function AdminOrders({
                   <td className="px-4 py-3 font-semibold">{order.routeName}</td>
                   <td className="px-4 py-3">{ITEM_TYPE_LABELS[order.itemType]}</td>
                   <td className="px-4 py-3"><StatusBadge status={STATUS_LABELS[order.status]} /></td>
-                  <td className="px-4 py-3 font-bold">{order.finalPrice ? `${order.finalPrice.toLocaleString("vi-VN")}đ` : "Báo giá"}</td>
+                  <td className="px-4 py-3 font-bold">
+                    {order.finalPrice ? `${order.finalPrice.toLocaleString("vi-VN")}đ` : `Đề xuất ${order.quotedPrice?.toLocaleString("vi-VN") || "-"}đ`}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
-      <OrderDetail order={selectedOrder} />
+      <OrderDetail order={selectedOrder} onApprove={onApprove} onAssignVehicle={onAssignVehicle} />
     </div>
   );
 }
 
-function OrderDetail({ order }: { order?: Order }) {
+function OrderDetail({
+  order,
+  onApprove,
+  onAssignVehicle,
+}: {
+  order?: Order;
+  onApprove: (finalPrice: number, note: string) => void;
+  onAssignVehicle: () => void;
+}) {
+  const [finalPrice, setFinalPrice] = useState(0);
+  const [approvalNote, setApprovalNote] = useState("Duyet gia tu AdminCP");
+
+  useEffect(() => {
+    setFinalPrice(order?.finalPrice || order?.quotedPrice || 0);
+    setApprovalNote("Duyet gia tu AdminCP");
+  }, [order?.id, order?.finalPrice, order?.quotedPrice]);
+
   if (!order) {
     return <div className="rounded border border-slate-200 bg-white p-5 text-sm font-semibold text-slate-500">Chọn một đơn để xem chi tiết.</div>;
   }
@@ -973,10 +1068,46 @@ function OrderDetail({ order }: { order?: Order }) {
         <Info label="Khách gửi" value={`${order.senderName} - ${order.senderPhone}`} />
         <Info label="Lấy hàng" value={order.pickupAddress} />
         <Info label="Giao hàng" value={order.deliveryAddress} />
+        <Info label="Mo ta hang" value={order.itemDescription || "Chua co"} />
+        <Info label="So kien / kg" value={`${order.packageCount || 1} kien / ${order.weight || 0} kg`} />
+        <Info label="Gia de xuat" value={order.quotedPrice ? `${order.quotedPrice.toLocaleString("vi-VN")}đ` : "Chua co"} />
+        <Info label="Gia da duyet" value={order.finalPrice ? `${order.finalPrice.toLocaleString("vi-VN")}đ` : "Chua duyet"} />
         <Info label="Maps" value={`${order.mapsDistanceKm || 0} km / ${order.mapsDurationMinutes || 0} phút`} />
         <Info label="Dispatch" value={order.dispatchStatus} />
         <Info label="Nhóm gợi ý" value={order.suggestedZaloGroups.join(", ") || "Chưa có"} />
+        <Info label="Xe nhan don" value={order.assignedDriverName ? `${order.assignedDriverName} - ${order.assignedDriverPhone} - ${order.assignedVehicleType} ${order.assignedVehiclePlate || ""}` : "Chua gan xe"} />
         <Info label="Ghi chú nội bộ" value={order.internalNotes || "Chưa có"} />
+      </div>
+      {Boolean(order.itemImages?.length) && (
+        <div className="mt-4">
+          <FieldLabel>Hinh anh san pham</FieldLabel>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {order.itemImages?.map((image, index) => (
+              <a key={image.slice(0, 48)} href={image} target="_blank" rel="noreferrer" className="aspect-square overflow-hidden rounded border border-slate-200 bg-slate-50">
+                <img src={image} alt={`Anh hang ${index + 1}`} className="h-full w-full object-cover" />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="mt-5 rounded border border-amber-200 bg-amber-50 p-4">
+        <h3 className="font-black">Duyet don qua dieu hanh</h3>
+        <div className="mt-3 grid gap-3">
+          <label>
+            <FieldLabel>Gia cuoc chinh thuc</FieldLabel>
+            <input type="number" min={1000} step={1000} value={finalPrice} onChange={(event) => setFinalPrice(Number(event.target.value) || 0)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>Ghi chu duyet</FieldLabel>
+            <input value={approvalNote} onChange={(event) => setApprovalNote(event.target.value)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <button type="button" onClick={() => onApprove(finalPrice, approvalNote)} className="rounded bg-slate-950 px-4 py-2 text-sm font-black text-white">
+            Duyet gia va gui Zalo khach
+          </button>
+          <button type="button" onClick={onAssignVehicle} className="rounded bg-red-600 px-4 py-2 text-sm font-black text-white">
+            Tim/giao xe gan nhat va gui Zalo
+          </button>
+        </div>
       </div>
     </div>
   );
