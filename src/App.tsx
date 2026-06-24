@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { ITEM_TYPE_LABELS, ItemType, STATUS_LABELS } from "./lib/constants/enums";
 import type { MapsAddress, Order, PublicTrackingInfo, RouteEstimate } from "./lib/types";
+import { ThemeLanding } from "./components/ThemeLanding";
 
 type View = "home" | "order" | "tracking" | "routes" | "pricing" | "policy" | "contact" | "admin" | "seo";
 type AdminModule = "dashboard" | "orders" | "dispatch" | "zalo" | "routes" | "partners" | "customers" | "pricing" | "seo" | "settings";
@@ -65,29 +66,42 @@ const adminModules: Array<{ id: AdminModule; label: string; icon: React.ElementT
 ];
 
 const itemOptions = Object.values(ItemType);
+const phoneHref = "tel:0345076789";
+
+function getInitialView(): View {
+  if (window.location.pathname === "/admincp") {
+    return "admin";
+  }
+
+  return window.location.pathname === "/" ? "home" : "seo";
+}
 
 function App() {
-  const [view, setView] = useState<View>(() => (window.location.pathname === "/" ? "home" : "seo"));
+  const [view, setView] = useState<View>(getInitialView);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const usesThemeLanding = view === "home";
+  const usesPublicChrome = view !== "home" && view !== "admin";
 
   useEffect(() => {
     document.title = "Chuyển Phát 24H - Hỏa tốc liên tỉnh từ Hà Nội";
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#f4f6f8] text-slate-950">
-      <Header
-        view={view}
-        setView={(next) => {
-          setView(next);
-          setMobileOpen(false);
-          window.scrollTo({ top: 0, behavior: "smooth" });
-        }}
-        mobileOpen={mobileOpen}
-        setMobileOpen={setMobileOpen}
-      />
+    <div className="min-h-screen bg-[#f6f8fb] text-slate-950" style={{ fontFamily: "'Be Vietnam Pro', system-ui, sans-serif" }}>
+      {usesPublicChrome && (
+        <Header
+          view={view}
+          setView={(next) => {
+            setView(next);
+            setMobileOpen(false);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+          mobileOpen={mobileOpen}
+          setMobileOpen={setMobileOpen}
+        />
+      )}
       <main>
-        {view === "home" && <HomePage setView={setView} />}
+        {view === "home" && <ThemeLanding setView={setView} />}
         {view === "order" && <OrderPage />}
         {view === "tracking" && <TrackingPage />}
         {view === "routes" && <RoutesPage />}
@@ -97,7 +111,7 @@ function App() {
         {view === "admin" && <AdminPage />}
         {view === "seo" && <SeoPage setView={setView} />}
       </main>
-      <Footer setView={setView} />
+      {usesPublicChrome && <Footer setView={setView} />}
     </div>
   );
 }
@@ -114,59 +128,52 @@ function Header({
   setMobileOpen: (open: boolean) => void;
 }) {
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <button className="flex items-center gap-3" onClick={() => setView("home")}>
-          <span className="flex h-10 w-10 items-center justify-center rounded bg-slate-950 text-white">
-            <Truck className="h-5 w-5" />
+    <header className="sticky top-0 z-50 border-b border-white/10 bg-[#071329]/95 text-white shadow-[0_10px_30px_rgba(7,19,41,.18)] backdrop-blur">
+      <div className="mx-auto flex h-[78px] max-w-[1480px] items-center px-4 sm:px-6 lg:px-[10%]">
+        <button className="mr-7 flex flex-none items-center gap-2 text-left" onClick={() => setView("home")}>
+          <span className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] bg-gradient-to-br from-[#f25c2b] to-[#ff8a57] shadow-[0_3px_10px_rgba(242,92,43,.3)]">
+            <Truck className="h-6 w-6 text-white" />
           </span>
           <span className="text-left">
-            <span className="block text-base font-black uppercase tracking-wide sm:text-lg">Chuyển Phát 24H</span>
-            <span className="hidden text-xs font-semibold text-slate-500 sm:block">Hàng đi theo tuyến xe đang chạy</span>
+            <span className="block text-base font-extrabold tracking-wide text-white">CP<span className="text-[#f25c2b]">24H</span></span>
+            <span className="hidden text-xs font-semibold text-[#aebbcd] sm:block">Hàng đi theo tuyến xe đang chạy</span>
           </span>
         </button>
 
-        <nav className="hidden items-center gap-1 lg:flex">
+        <nav className="hidden min-w-0 flex-1 items-center gap-1 text-[13px] font-medium lg:flex">
           {navItems.map((item) => (
             <button
               key={item.view}
               onClick={() => setView(item.view)}
-              className={`rounded px-3 py-2 text-sm font-semibold transition ${view === item.view ? "bg-slate-950 text-white" : "text-slate-700 hover:bg-slate-100"}`}
+              className={`rounded-md px-2.5 py-1.5 transition ${view === item.view ? "bg-[#f25c2b]/20 font-bold text-white" : "text-[#d0daea] hover:bg-white/10 hover:text-white"}`}
             >
               {item.label}
             </button>
           ))}
-          <button onClick={() => setView("admin")} className={`rounded px-3 py-2 text-sm font-semibold ${view === "admin" ? "bg-red-600 text-white" : "text-red-700 hover:bg-red-50"}`}>
-            AdminCP
-          </button>
         </nav>
 
-        <div className="hidden items-center gap-3 lg:flex">
-          <a className="flex items-center gap-2 rounded border border-slate-200 px-3 py-2 text-sm font-black text-slate-900" href="tel:0345076789">
-            <Phone className="h-4 w-4 text-red-600" />
-            {hotline}
+        <div className="ml-auto hidden flex-none items-center gap-3 lg:flex">
+          <a className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/10 transition hover:bg-white/15" href={phoneHref} aria-label="Gọi hotline">
+            <Phone className="h-4 w-4 text-[#f25c2b]" />
           </a>
-          <button onClick={() => setView("order")} className="rounded bg-amber-400 px-4 py-2 text-sm font-black text-slate-950 hover:bg-amber-300">
+          <button onClick={() => setView("order")} className="rounded-lg bg-gradient-to-b from-[#f7723e] to-[#f25c2b] px-4 py-2 text-xs font-bold tracking-wide text-white shadow-[0_4px_14px_rgba(242,92,43,.32)] transition hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(242,92,43,.5)]">
             Tạo đơn nhanh
           </button>
         </div>
 
-        <button className="rounded border border-slate-200 p-2 lg:hidden" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Mở menu">
+        <button className="ml-auto rounded-lg border border-white/15 bg-white/10 p-2 lg:hidden" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Mở menu">
           {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
       </div>
 
       {mobileOpen && (
-        <div className="border-t border-slate-200 bg-white px-4 py-3 lg:hidden">
+        <div className="border-t border-white/10 bg-[#071329] px-4 py-3 lg:hidden">
           <div className="grid gap-2">
             {navItems.map((item) => (
-              <button key={item.view} onClick={() => setView(item.view)} className="rounded px-3 py-2 text-left text-sm font-semibold hover:bg-slate-100">
+              <button key={item.view} onClick={() => setView(item.view)} className={`rounded-lg px-3 py-2 text-left text-sm font-semibold ${view === item.view ? "bg-[#f25c2b]/20 text-white" : "text-[#d0daea] hover:bg-white/10"}`}>
                 {item.label}
               </button>
             ))}
-            <button onClick={() => setView("admin")} className="rounded px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50">
-              AdminCP
-            </button>
           </div>
         </div>
       )}
@@ -251,9 +258,9 @@ function HeroMetric({ value, label }: { value: string; label: string }) {
 
 function ValueCard({ icon: Icon, title, desc }: { icon: React.ElementType; title: string; desc: string }) {
   return (
-    <div className="rounded border border-slate-200 bg-white p-4">
-      <Icon className="h-5 w-5 text-red-600" />
-      <h3 className="mt-3 font-black">{title}</h3>
+    <div className="rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
+      <Icon className="h-6 w-6 text-[#f25c2b]" />
+      <h3 className="mt-3 font-extrabold text-[#0c2349]">{title}</h3>
       <p className="mt-2 text-sm leading-6 text-slate-600">{desc}</p>
     </div>
   );
@@ -449,16 +456,16 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <div className={`rounded border border-slate-200 bg-white shadow-sm ${compact ? "p-5" : "p-6"}`}>
+    <div className={`rounded-2xl border border-[#eaeef4] bg-white shadow-[0_16px_40px_rgba(12,35,73,.08)] ${compact ? "p-5" : "p-6"}`}>
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-wide text-red-700">QuickOrderForm</p>
-          <h2 className="mt-1 text-xl font-black">Tạo đơn chuyển phát nhanh</h2>
+          <p className="text-xs font-black uppercase tracking-wide text-[#f25c2b]">Tạo đơn nhanh</p>
+          <h2 className="mt-1 text-xl font-extrabold text-[#0c2349]">Tạo đơn chuyển phát nhanh</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
             Nhập điểm lấy và điểm giao, hệ thống sẽ tự xác định tuyến, thời gian dự kiến và phương án xử lý phù hợp.
           </p>
         </div>
-        <PackageCheck className="hidden h-7 w-7 text-red-600 sm:block" />
+        <PackageCheck className="hidden h-7 w-7 text-[#f25c2b] sm:block" />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -466,7 +473,7 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
         <AddressInput label="Điểm giao hàng" value={deliveryQuery} onChange={setDeliveryQuery} suggestions={deliverySuggestions} onSelect={(address) => { setDeliveryQuery(address.label); setDeliveryPlaceId(address.placeId); }} />
         <label className="block">
           <FieldLabel>Loại hàng</FieldLabel>
-          <select value={itemType} onChange={(event) => setItemType(event.target.value as ItemType)} className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold">
+          <select value={itemType} onChange={(event) => setItemType(event.target.value as ItemType)} className="mt-1 h-[48px] w-full rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#f25c2b]">
             {itemOptions.map((type) => (
               <option key={type} value={type}>{ITEM_TYPE_LABELS[type]}</option>
             ))}
@@ -474,7 +481,7 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
         </label>
         <label className="block">
           <FieldLabel>Thời gian cần giao</FieldLabel>
-          <select value={expectedDeliveryTime} onChange={(event) => setExpectedDeliveryTime(event.target.value)} className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold">
+          <select value={expectedDeliveryTime} onChange={(event) => setExpectedDeliveryTime(event.target.value)} className="mt-1 h-[48px] w-full rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#f25c2b]">
             <option>Càng sớm càng tốt</option>
             <option>Trong 2-4 giờ</option>
             <option>Trong ngày</option>
@@ -484,23 +491,23 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
         </label>
         <label className="block sm:col-span-2">
           <FieldLabel>Số điện thoại/Zalo khách</FieldLabel>
-          <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} className="mt-1 h-[48px] w-full rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#f25c2b]" />
         </label>
         <label className="block sm:col-span-2">
           <FieldLabel>Mo ta hang hoa</FieldLabel>
-          <textarea value={itemDescription} onChange={(event) => setItemDescription(event.target.value)} rows={3} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          <textarea value={itemDescription} onChange={(event) => setItemDescription(event.target.value)} rows={3} className="mt-1 w-full rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 py-2 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#f25c2b]" />
         </label>
         <label className="block">
           <FieldLabel>So kien</FieldLabel>
-          <input type="number" min={1} value={packageCount} onChange={(event) => setPackageCount(Number(event.target.value) || 1)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          <input type="number" min={1} value={packageCount} onChange={(event) => setPackageCount(Number(event.target.value) || 1)} className="mt-1 h-[48px] w-full rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#f25c2b]" />
         </label>
         <label className="block">
           <FieldLabel>Can nang uoc tinh (kg)</FieldLabel>
-          <input type="number" min={0.1} step={0.1} value={weight} onChange={(event) => setWeight(Number(event.target.value) || 1)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          <input type="number" min={0.1} step={0.1} value={weight} onChange={(event) => setWeight(Number(event.target.value) || 1)} className="mt-1 h-[48px] w-full rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#f25c2b]" />
         </label>
         <div className="sm:col-span-2">
           <FieldLabel>Hinh anh san pham</FieldLabel>
-          <label className="mt-1 flex cursor-pointer items-center justify-center gap-2 rounded border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm font-black text-slate-700 hover:bg-amber-50">
+          <label className="mt-1 flex cursor-pointer items-center justify-center gap-2 rounded-[11px] border border-dashed border-[#f6b89e] bg-[#fff4ee] px-4 py-4 text-sm font-black text-[#0c2349] hover:bg-[#fff1ea]">
             <ImagePlus className="h-4 w-4" />
             Tai anh hang hoa (toi da 4 anh)
             <input type="file" accept="image/*" multiple onChange={(event) => handleImageUpload(event.target.files)} className="sr-only" />
@@ -521,12 +528,12 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
       </div>
 
       <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-        <button onClick={estimateRoute} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded bg-slate-950 px-4 py-2.5 text-sm font-black text-white disabled:opacity-60">
+        <button onClick={estimateRoute} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-[11px] bg-[#0c2349] px-4 py-2.5 text-sm font-black text-white shadow-[0_8px_18px_rgba(12,35,73,.18)] disabled:opacity-60">
           <RouteIcon className="h-4 w-4" />
           Ước tính tuyến
         </button>
         {estimate && (
-          <button onClick={createOrder} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded bg-red-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-60">
+          <button onClick={createOrder} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-[11px] bg-gradient-to-b from-[#f7723e] to-[#f25c2b] px-4 py-2.5 text-sm font-black text-white shadow-[0_8px_18px_rgba(242,92,43,.28)] disabled:opacity-60">
             <Send className="h-4 w-4" />
             {estimate.ctaText}
           </button>
@@ -541,7 +548,7 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <span className="text-xs font-black uppercase tracking-wide text-slate-500">{children}</span>;
+  return <span className="text-xs font-black uppercase tracking-wide text-[#7c8696]">{children}</span>;
 }
 
 function AddressInput({
@@ -560,10 +567,10 @@ function AddressInput({
   return (
     <label className="block">
       <FieldLabel>{label}</FieldLabel>
-      <input value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+      <input value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 h-[48px] w-full rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#f25c2b]" />
       <div className="mt-2 flex flex-wrap gap-2">
         {suggestions.slice(0, 3).map((address) => (
-          <button key={address.placeId} type="button" onClick={() => onSelect(address)} className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-bold text-slate-700 hover:bg-amber-50">
+          <button key={address.placeId} type="button" onClick={() => onSelect(address)} className="rounded-full border border-[#eaeef4] bg-[#f6f8fb] px-3 py-1 text-xs font-bold text-[#4a5868] hover:border-[#f25c2b]/40 hover:bg-[#fff4ee]">
             {address.label}
           </button>
         ))}
@@ -574,14 +581,14 @@ function AddressInput({
 
 function RouteEstimateCard({ estimate }: { estimate: RouteEstimate }) {
   return (
-    <div className="mt-5 rounded border border-amber-200 bg-amber-50 p-4">
+    <div className="mt-5 rounded-[14px] border border-[#f6b89e] bg-[#fff4ee] p-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-wide text-amber-700">Kết quả phân tuyến</p>
-          <h3 className="mt-1 text-lg font-black">{estimate.routeName}</h3>
+          <p className="text-xs font-black uppercase tracking-wide text-[#f25c2b]">Kết quả phân tuyến</p>
+          <h3 className="mt-1 text-lg font-black text-[#0c2349]">{estimate.routeName}</h3>
           <p className="mt-1 text-sm font-semibold text-slate-700">{estimate.publicMessage}</p>
         </div>
-        <span className="rounded bg-white px-3 py-1 text-xs font-black text-slate-800">{estimate.statusText}</span>
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#0c2349]">{estimate.statusText}</span>
       </div>
       <div className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
         <Info label="Chiều vận chuyển" value={estimate.direction} />
@@ -595,14 +602,14 @@ function RouteEstimateCard({ estimate }: { estimate: RouteEstimate }) {
 
 function OrderCreatedCard({ order }: { order: Order }) {
   return (
-    <div className="mt-5 rounded border border-emerald-200 bg-emerald-50 p-4">
+    <div className="mt-5 rounded-[14px] border border-emerald-200 bg-emerald-50 p-4">
       <h3 className="text-lg font-black text-emerald-800">Đã tiếp nhận yêu cầu gửi hàng</h3>
       <p className="mt-2 text-sm font-semibold text-slate-700">Mã đơn: <span className="font-black">{order.orderCode}</span></p>
       <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">
         Don da duoc gui ve bot Telegram cho dieu hanh. Gia tren website la gia de xuat; khi duyet gia va co xe nhan don, he thong se gui thong tin qua Zalo cua khach.
       </p>
       <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-        <a href={`tel:${hotline.replace(/\s/g, "")}`} className="rounded bg-emerald-700 px-4 py-2 text-center text-sm font-black text-white">
+        <a href={`tel:${hotline.replace(/\s/g, "")}`} className="rounded-[11px] bg-[#0c2349] px-4 py-2 text-center text-sm font-black text-white">
           Gọi/Zalo {hotline}
         </a>
       </div>
@@ -612,17 +619,17 @@ function OrderCreatedCard({ order }: { order: Order }) {
 
 function Info({ label, value }: { key?: React.Key; label: string; value?: React.ReactNode }) {
   return (
-    <div className="rounded border border-slate-200 bg-white p-3">
-      <div className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-1 break-words font-black text-slate-950">{value || "-"}</div>
+    <div className="rounded-[11px] border border-[#eaeef4] bg-white p-3">
+      <div className="text-xs font-black uppercase tracking-wide text-[#7c8696]">{label}</div>
+      <div className="mt-1 break-words font-black text-[#0c2349]">{value || "-"}</div>
     </div>
   );
 }
 
 function SidePanel({ title, items }: { title: string; items: string[] }) {
   return (
-    <aside className="h-fit rounded border border-slate-200 bg-white p-5">
-      <h2 className="font-black">{title}</h2>
+    <aside className="h-fit rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_16px_40px_rgba(12,35,73,.06)]">
+      <h2 className="font-extrabold text-[#0c2349]">{title}</h2>
       <div className="mt-4 grid gap-3">
         {items.map((item) => (
           <div key={item} className="flex gap-3 text-sm font-semibold leading-6 text-slate-700">
@@ -646,12 +653,12 @@ function RoutesPage() {
     <PageShell title="Tuyến dịch vụ" desc="Chỉ phục vụ các tuyến 2 chiều từ Hà Nội đi tỉnh và từ tỉnh về Hà Nội trong danh sách. Không có tuyến Hà Nội - Điện Biên.">
       <div className="grid gap-4">
         {groups.map(([title, provinces]) => (
-          <div key={title as string} className="rounded border border-slate-200 bg-white p-5">
-            <h2 className="font-black">{title}</h2>
+          <div key={title as string} className="rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
+            <h2 className="font-extrabold text-[#0c2349]">{title}</h2>
             <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {(provinces as string[]).map((province) => (
-                <div key={province} className="rounded border border-slate-200 bg-slate-50 p-3 text-sm font-bold">
-                  Hà Nội ↔ {province}
+                <div key={province} className="rounded-[11px] border border-[#eaeef4] bg-[#f6f8fb] p-3 text-sm font-bold text-[#0c2349]">
+                  Hà Nội <span className="text-[#f25c2b]">↔</span> {province}
                 </div>
               ))}
             </div>
@@ -670,7 +677,7 @@ function PricingPage() {
         <Price title="Hàng nhỏ / hàng shop" price="Từ 190.000đ" desc="Tuyến trong ngày hoặc 24h." />
         <Price title="Xe máy / hàng cồng kềnh" price="Báo giá thủ công" desc="Admin xác nhận kích thước, xe phù hợp và lịch bốc dỡ." />
       </div>
-      <div className="mt-5 overflow-hidden rounded border border-slate-200 bg-white">
+      <div className="mt-5 overflow-hidden rounded-2xl border border-[#eaeef4] bg-white shadow-[0_12px_34px_rgba(12,35,73,.06)]">
         {[
           ["Nhóm tuyến", "Loại hàng", "Thời gian", "Xử lý"],
           ["Gần Hà Nội", "Giấy tờ, hàng nhỏ, hàng shop", "2-4 giờ", "Có thể tạo đơn ngay"],
@@ -678,7 +685,7 @@ function PricingPage() {
           ["Tây Bắc", "Hàng nhỏ, giấy tờ", "Cần xác nhận lịch xe", "Admin kiểm tra thủ công"],
           ["Hàng đặc biệt", "Xe máy, tivi, tủ lạnh, quá khổ", "Theo điều phối", "Báo giá thủ công"],
         ].map((row, idx) => (
-          <div key={row.join("-")} className={`grid grid-cols-4 gap-3 px-4 py-3 text-sm ${idx === 0 ? "bg-slate-950 font-black text-white" : "border-t border-slate-100 font-semibold text-slate-700"}`}>
+          <div key={row.join("-")} className={`grid grid-cols-4 gap-3 px-4 py-3 text-sm ${idx === 0 ? "bg-[#0c2349] font-black text-white" : "border-t border-[#eef1f6] font-semibold text-[#4a5868]"}`}>
             {row.map((cell) => <div key={cell}>{cell}</div>)}
           </div>
         ))}
@@ -689,10 +696,10 @@ function PricingPage() {
 
 function Price({ title, price, desc }: { title: string; price: string; desc: string }) {
   return (
-    <div className="rounded border border-slate-200 bg-white p-5">
-      <WalletCards className="mb-4 h-6 w-6 text-red-600" />
-      <h2 className="font-black">{title}</h2>
-      <p className="mt-3 text-2xl font-black">{price}</p>
+    <div className="rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
+      <WalletCards className="mb-4 h-6 w-6 text-[#f25c2b]" />
+      <h2 className="font-extrabold text-[#0c2349]">{title}</h2>
+      <p className="mt-3 text-2xl font-extrabold text-[#f25c2b]">{price}</p>
       <p className="mt-2 text-sm leading-6 text-slate-600">{desc}</p>
     </div>
   );
@@ -720,25 +727,25 @@ function TrackingPage() {
   return (
     <PageShell title="Tra cứu đơn" desc="Khách chỉ thấy thông tin public: trạng thái, timeline, hotline và tài xế nếu admin cho phép.">
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-        <div className="rounded border border-slate-200 bg-white p-5">
+        <div className="rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_16px_40px_rgba(12,35,73,.08)]">
           <div className="grid gap-4 sm:grid-cols-3">
-            <input value={orderCode} onChange={(event) => setOrderCode(event.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold" placeholder="Mã đơn" />
-            <input value={phone} onChange={(event) => setPhone(event.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold" placeholder="Số điện thoại" />
-            <button onClick={lookup} className="rounded bg-slate-950 px-4 py-2 text-sm font-black text-white">Tra cứu</button>
+            <input value={orderCode} onChange={(event) => setOrderCode(event.target.value)} className="h-[48px] rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#f25c2b]" placeholder="Mã đơn" />
+            <input value={phone} onChange={(event) => setPhone(event.target.value)} className="h-[48px] rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#f25c2b]" placeholder="Số điện thoại" />
+            <button onClick={lookup} className="rounded-[11px] bg-gradient-to-b from-[#f7723e] to-[#f25c2b] px-4 py-2 text-sm font-black text-white shadow-[0_8px_18px_rgba(242,92,43,.28)]">Tra cứu</button>
           </div>
           {message && <p className="mt-4 rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{message}</p>}
           {tracking && (
-            <div className="mt-5 rounded border border-slate-200 bg-slate-50 p-4">
+            <div className="mt-5 rounded-[14px] border border-[#eaeef4] bg-[#f6f8fb] p-4">
               <div className="flex flex-col justify-between gap-3 sm:flex-row">
                 <div>
                   <h2 className="text-xl font-black">{tracking.orderCode}</h2>
                   <p className="mt-1 text-sm font-semibold text-slate-600">{tracking.routeName} · {tracking.itemType}</p>
                 </div>
-                <span className="h-fit rounded bg-emerald-100 px-3 py-1 text-sm font-black text-emerald-800">{tracking.statusLabel}</span>
+                <span className="h-fit rounded-full bg-emerald-100 px-3 py-1 text-sm font-black text-emerald-800">{tracking.statusLabel}</span>
               </div>
               <div className="mt-5 grid gap-3">
                 {tracking.publicTimeline.map((event) => (
-                  <div key={event.id} className="rounded border border-slate-200 bg-white p-3">
+                  <div key={event.id} className="rounded-[11px] border border-[#eaeef4] bg-white p-3">
                     <div className="font-black">{event.title}</div>
                     <p className="mt-1 text-sm text-slate-600">{event.description}</p>
                   </div>
@@ -1277,9 +1284,9 @@ function ContactPage() {
 
 function Contact({ icon, title, value }: { icon: React.ReactNode; title: string; value: string }) {
   return (
-    <div className="rounded border border-slate-200 bg-white p-5">
-      <div className="mb-3 h-6 w-6 text-red-600">{icon}</div>
-      <h2 className="font-black">{title}</h2>
+    <div className="rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
+      <div className="mb-3 h-6 w-6 text-[#f25c2b]">{icon}</div>
+      <h2 className="font-extrabold text-[#0c2349]">{title}</h2>
       <p className="mt-2 text-sm font-semibold text-slate-600">{value}</p>
     </div>
   );
@@ -1288,11 +1295,11 @@ function Contact({ icon, title, value }: { icon: React.ReactNode; title: string;
 function SeoPage({ setView }: { setView: (view: View) => void }) {
   return (
     <PageShell title="Chuyển phát hỏa tốc liên tỉnh" desc="Trang SEO placeholder cho các slug dịch vụ. Nội dung sẽ được tách thành từng landing page riêng ở phase SEO.">
-      <div className="rounded border border-slate-200 bg-white p-5">
+      <div className="rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
         <p className="text-sm leading-7 text-slate-700">
           Chuyển Phát 24H nhận tận nơi, giao tận tay theo tuyến xe đang chạy từ Hà Nội đi Bắc Ninh, Hải Phòng, Quảng Ninh, Ninh Bình, Thanh Hóa, Nghệ An và các tỉnh trong danh sách phục vụ.
         </p>
-        <button onClick={() => setView("order")} className="mt-5 rounded bg-red-600 px-4 py-2 text-sm font-black text-white">Tạo đơn ngay</button>
+        <button onClick={() => setView("order")} className="mt-5 rounded-[11px] bg-gradient-to-b from-[#f7723e] to-[#f25c2b] px-4 py-2 text-sm font-black text-white shadow-[0_8px_18px_rgba(242,92,43,.28)]">Tạo đơn ngay</button>
       </div>
     </PageShell>
   );
@@ -1300,29 +1307,75 @@ function SeoPage({ setView }: { setView: (view: View) => void }) {
 
 function PageShell({ title, desc, children }: { title: string; desc: string; children: React.ReactNode }) {
   return (
-    <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mb-6">
-        <h1 className="text-3xl font-black tracking-tight">{title}</h1>
-        <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-slate-600">{desc}</p>
+    <section className="bg-[#f6f8fb] text-[#14233f]">
+      <div
+        className="relative overflow-hidden bg-[#071329] text-white"
+        style={{
+          backgroundImage:
+            "linear-gradient(100deg, rgba(7,19,41,.96) 0%, rgba(7,19,41,.88) 40%, rgba(7,19,41,.72) 100%), url('/theme/banner-hero.png')",
+          backgroundPosition: "center 42%",
+          backgroundSize: "cover",
+        }}
+      >
+        <div className="mx-auto max-w-[1480px] px-4 py-12 sm:px-6 lg:px-[10%] lg:py-16">
+          <p className="text-xs font-extrabold uppercase tracking-[.2em] text-[#f25c2b]">Chuyển Phát 24H</p>
+          <h1 className="mt-3 max-w-4xl text-[34px] font-extrabold leading-tight tracking-tight sm:text-[44px]">{title}</h1>
+          <p className="mt-4 max-w-3xl text-[15px] font-medium leading-7 text-[#dbe4f1]">{desc}</p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <a href={phoneHref} className="inline-flex items-center gap-2 rounded-full bg-gradient-to-b from-[#f7723e] to-[#f25c2b] px-5 py-3 text-sm font-extrabold text-white shadow-[0_8px_20px_rgba(242,92,43,.32)]">
+              <Phone className="h-4 w-4" />
+              {hotline}
+            </a>
+          </div>
+        </div>
       </div>
-      {children}
+      <div className="mx-auto max-w-[1480px] px-4 py-10 sm:px-6 lg:px-[10%]">{children}</div>
     </section>
   );
 }
 
 function Footer({ setView }: { setView: (view: View) => void }) {
   return (
-    <footer className="border-t border-slate-200 bg-white">
-      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 text-sm text-slate-600 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
+    <footer className="bg-[#081730] text-[#aebbcd]">
+      <div className="mx-auto grid max-w-[1480px] gap-8 px-4 py-10 sm:px-6 md:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr] lg:px-[10%]">
         <div>
-          <div className="font-black text-slate-950">CHUYỂN PHÁT 24H</div>
-          <div>chuyenphat24h.com · chuyenphat24h.vn · Hotline/Zalo {hotline}</div>
+          <div className="flex items-center gap-3">
+            <span className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] bg-gradient-to-br from-[#f25c2b] to-[#ff8a57] shadow-[0_3px_10px_rgba(242,92,43,.3)]">
+              <Truck className="h-6 w-6 text-white" />
+            </span>
+            <div className="font-extrabold tracking-wide text-white">
+              CP<span className="text-[#f25c2b]">24H</span>
+            </div>
+          </div>
+          <p className="mt-4 max-w-[340px] text-[13.5px] leading-6">
+            Chuyển phát liên tỉnh siêu tốc, nhận hàng tận nơi, giao tận tay ngay trong ngày.
+          </p>
         </div>
-        <div className="flex flex-wrap gap-3">
-          <button onClick={() => setView("order")} className="font-bold hover:text-red-700">Tạo đơn</button>
-          <button onClick={() => setView("tracking")} className="font-bold hover:text-red-700">Tra cứu đơn</button>
-          <a href="tel:0345076789" className="font-bold hover:text-red-700">Gọi/Zalo {hotline}</a>
+        <div>
+          <h4 className="mb-4 mt-1 text-[13px] font-bold tracking-wide text-white">DỊCH VỤ</h4>
+          <div className="grid gap-2 text-[13.5px]">
+            <button onClick={() => setView("order")} className="text-left font-bold hover:text-white">Tạo đơn hàng</button>
+            <button onClick={() => setView("tracking")} className="text-left font-bold hover:text-white">Tra cứu đơn</button>
+            <button onClick={() => setView("routes")} className="text-left font-bold hover:text-white">Tuyến chuyển phát</button>
+            <button onClick={() => setView("pricing")} className="text-left font-bold hover:text-white">Bảng giá</button>
+          </div>
         </div>
+        <div>
+          <h4 className="mb-4 mt-1 text-[13px] font-bold tracking-wide text-white">LIÊN HỆ</h4>
+          <div className="grid gap-3 text-[13.5px]">
+            <a href={phoneHref} className="flex items-center gap-2 font-bold text-white">
+              <Phone className="h-4 w-4 text-[#f25c2b]" />
+              {hotline}
+            </a>
+            <span className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-[#f25c2b]" />
+              Hà Nội và các tỉnh phía Bắc
+            </span>
+          </div>
+        </div>
+      </div>
+      <div className="border-t border-white/10 py-5 text-center text-[12.5px] text-[#7b8aa0]">
+        © 2026 Chuyển Phát 24H. Tất cả quyền được bảo lưu.
       </div>
     </footer>
   );
