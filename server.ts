@@ -1,454 +1,396 @@
-import express, { Request, Response } from "express";
-import path from "path";
 import dotenv from "dotenv";
+import express, { Request, Response } from "express";
+import crypto from "node:crypto";
+import path from "node:path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
+import { mapsService } from "./src/lib/maps/mapsService";
+import { classifyQuickOrder, createQuickOrderFromHomeForm } from "./src/lib/orders/quickOrderService";
+import { addTimelineEvent, assignDriverToOrder, getOrders, updateOrder } from "./src/lib/orders/orderService";
+import { getPublicTrackingInfo } from "./src/lib/tracking/trackingService";
+import { addDispatchPreviewLog, getDispatchLogs, sendOrderToZaloGroups } from "./src/lib/dispatch/dispatchService";
+import { parseDriverCommand } from "./src/lib/zalo/botCommandParser";
+import { getZaloGroups } from "./src/lib/zalo/zaloGroupService";
+import { getPartnerApplications, createPartnerApplication } from "./src/lib/partners/driverPartnerService";
+import { createDriverCandidateFromPartner, findNearestVehicleForOrder } from "./src/lib/partners/nearestVehicleService";
+import { getNotificationLogs, logTelegramCommand, mockSendCustomerZaloOrderApproved, mockSendCustomerZaloVehicleAssigned } from "./src/lib/notification/notificationService";
+import { DispatchStatus, OrderStatus, Visibility } from "./src/lib/constants/enums";
+import { mockRoutes } from "./src/data/mockRoutes";
+import { mockPricingRules } from "./src/data/mockPricing";
+import { mockPartners } from "./src/data/mockPartners";
+import { seoPages } from "./src/lib/seo/seoPages";
 
-// Load environment variables
 dotenv.config();
 
-// Standard models and mock storage imports
-import { OrderStatus, Order, Route, Driver, Vehicle, PricingRule, ChatMessage } from "./src/types";
-import { 
-  MOCK_ORDERS, 
-  MOCK_ROUTES, 
-  MOCK_DRIVERS, 
-  MOCK_VEHICLES, 
-  MOCK_PRICING_RULES,
-  PROVINCES_MAP 
-} from "./src/constants";
-
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
+const adminUsername = process.env.ADMIN_USERNAME || "admin";
+const adminPassword = process.env.ADMIN_PASSWORD || "change-me-now";
+const sessionSecret = process.env.ADMIN_SESSION_SECRET || "cp24h-dev-session-secret";
+const sessionCookieName = "cp24h_admin_session";
 
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
-// In-Memory Database State
-let dbOrders: Order[] = [...MOCK_ORDERS];
-let dbRoutes: Route[] = [...MOCK_ROUTES];
-const dbDrivers: Driver[] = [...MOCK_DRIVERS];
-const dbVehicles: Vehicle[] = [...MOCK_VEHICLES];
-const dbPricingRules: PricingRule[] = [...MOCK_PRICING_RULES];
-
-// --- LAZY GEMINI API CLIENT ---
-let aiInstance: GoogleGenAI | null = null;
-function getGeminiClient(): GoogleGenAI | null {
-  if (!aiInstance) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (apiKey && apiKey !== "MY_GEMINI_API_KEY" && apiKey.trim() !== "") {
-      aiInstance = new GoogleGenAI({
-        apiKey: apiKey,
-        httpOptions: {
-          headers: {
-            "User-Agent": "aistudio-build",
-          },
-        },
-      });
-    }
-  }
-  return aiInstance;
+function findOrder(orderIdOrCode: string) {
+  return getOrders().find((item) => item.id === orderIdOrCode || item.orderCode.toLowerCase() === orderIdOrCode.toLowerCase());
 }
 
-// --- API ENDPOINTS ---
+function approveOrder(orderIdOrCode: string, finalPrice: number, note?: string, actor = "admin") {
+  const order = findOrder(orderIdOrCode);
+  if (!order) return null;
+  const updated = updateOrder(order.id, {
+    finalPrice,
+    status: OrderStatus.CUSTOMER_CONFIRMED,
+    dispatchStatus: DispatchStatus.READY_TO_DISPATCH,
+    customerTrackingNote: `Don da duoc dieu hanh duyet. Gia cuoc chinh thuc: ${finalPrice.toLocaleString("vi-VN")}d. He thong dang tim xe phu hop.`,
+    internalNotes: [order.internalNotes, note].filter(Boolean).join("\n"),
+  });
+  addTimelineEvent(order.id, {
+    eventType: "ORDER_APPROVED",
+    title: "Don da duoc duyet",
+    description: `Gia cuoc chinh thuc: ${finalPrice.toLocaleString("vi-VN")}d.`,
+    visibility: Visibility.PUBLIC_CUSTOMER,
+    createdBy: actor,
+  });
+  if (updated) mockSendCustomerZaloOrderApproved(updated);
+  return findOrder(order.id);
+}
 
-// 1. Health check
-app.get("/api/health", (req: Request, res: Response) => {
-  res.json({ status: "ok", time: new Date().toISOString() });
-});
-
-// 2. Fetch all drivers, vehicles, pricing rules
-app.get("/api/drivers", (req: Request, res: Response) => {
-  res.json(dbDrivers);
-});
-
-app.get("/api/vehicles", (req: Request, res: Response) => {
-  res.json(dbVehicles);
-});
-
-app.get("/api/pricing-rules", (req: Request, res: Response) => {
-  res.json(dbPricingRules);
-});
-
-// 3. Get routes ("Tuyến xe đang chạy")
-app.get("/api/routes", (req: Request, res: Response) => {
-  res.json(dbRoutes);
-});
-
-// Update route status or capacity
-app.patch("/api/routes/:id", (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { routeStatus, capacityStatus, remainingOrderSlots } = req.body;
-  
-  const routeIndex = dbRoutes.findIndex(r => r.id === id);
-  if (routeIndex === -1) {
-    return res.status(404).json({ message: "Không tìm thấy tuyến đường này" });
+function assignNearestVehicle(orderIdOrCode: string, actor = "admin") {
+  const order = findOrder(orderIdOrCode);
+  if (!order) return { order: null, vehicle: null };
+  const vehicle = findNearestVehicleForOrder(order);
+  if (!vehicle) {
+    const updated = updateOrder(order.id, {
+      dispatchStatus: DispatchStatus.NO_DRIVER_FOUND,
+      customerTrackingNote: "Dieu hanh dang tiep tuc tim xe phu hop cho don hang.",
+    });
+    return { order: updated, vehicle: null };
   }
-
-  const route = dbRoutes[routeIndex];
-  if (routeStatus !== undefined) route.routeStatus = routeStatus;
-  if (capacityStatus !== undefined) route.capacityStatus = capacityStatus;
-  if (remainingOrderSlots !== undefined) route.remainingOrderSlots = remainingOrderSlots;
-
-  dbRoutes[routeIndex] = route;
-  res.json(route);
-});
-
-// 4. API Orders
-app.get("/api/orders", (req: Request, res: Response) => {
-  res.json(dbOrders);
-});
-
-// Create new order
-app.post("/api/orders", (req: Request, res: Response) => {
-  const newOrderData = req.body;
-  
-  // Validation checks
-  if (!newOrderData.senderName || !newOrderData.senderPhone || !newOrderData.receiverName || !newOrderData.receiverPhone) {
-    return res.status(400).json({ message: "Thiếu thông tin người gửi hoặc người nhận" });
+  const candidate = createDriverCandidateFromPartner(vehicle);
+  updateOrder(order.id, { driverCandidates: [candidate, ...order.driverCandidates] });
+  const assigned = assignDriverToOrder(order.id, candidate);
+  if (assigned) {
+    addTimelineEvent(order.id, {
+      eventType: "VEHICLE_ASSIGNED",
+      title: "Da co xe nhan don",
+      description: `${assigned.assignedDriverName} - ${assigned.assignedVehicleType} ${assigned.assignedVehiclePlate || ""}.`,
+      visibility: Visibility.PUBLIC_CUSTOMER,
+      createdBy: actor,
+    });
+    const latest = updateOrder(order.id, {
+      assignedDriverVisibleToCustomer: true,
+      customerTrackingNote: "Da co xe nhan don. Thong tin xe da duoc gui qua Zalo cua khach.",
+    });
+    if (latest) mockSendCustomerZaloVehicleAssigned(latest);
+    return { order: findOrder(order.id), vehicle };
   }
+  return { order: null, vehicle };
+}
 
-  // Generate unique order code (CP24H-YYYYMMDD-XXXX)
-  const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const seq = Math.floor(1000 + Math.random() * 9000); // 4-digit sequence
-  const orderCode = `CP24H-${todayStr}-${seq}`;
+function parseCookies(cookieHeader = "") {
+  return cookieHeader.split(";").reduce<Record<string, string>>((cookies, pair) => {
+    const [rawKey, ...rawValue] = pair.trim().split("=");
+    if (!rawKey) return cookies;
+    cookies[rawKey] = decodeURIComponent(rawValue.join("="));
+    return cookies;
+  }, {});
+}
 
-  const defaultStatus = newOrderData.isManualQuoteRequired ? OrderStatus.PENDING_CONFIRMATION : OrderStatus.NEW;
+function signSession(payload: string) {
+  return crypto.createHmac("sha256", sessionSecret).update(payload).digest("hex");
+}
 
-  const newOrder: Order = {
-    id: `ORD-${Date.now()}`,
-    orderCode,
-    senderName: newOrderData.senderName,
-    senderPhone: newOrderData.senderPhone,
-    pickupAddress: newOrderData.pickupAddress || "",
-    pickupDistrict: newOrderData.pickupDistrict || "",
-    pickupProvince: newOrderData.pickupProvince || "Hà Nội",
-    receiverName: newOrderData.receiverName,
-    receiverPhone: newOrderData.receiverPhone,
-    deliveryAddress: newOrderData.deliveryAddress || "",
-    deliveryDistrict: newOrderData.deliveryDistrict || "",
-    deliveryProvince: newOrderData.deliveryProvince,
-    direction: newOrderData.direction || "Hà Nội đi Tỉnh",
-    routeName: `${newOrderData.pickupProvince} ↔ ${newOrderData.deliveryProvince}`,
-    itemType: newOrderData.itemType || "Bưu phẩm nhỏ",
-    itemDescription: newOrderData.itemDescription || "",
-    weight: Number(newOrderData.weight) || 1,
-    dimensions: newOrderData.dimensions || "",
-    declaredValue: Number(newOrderData.declaredValue) || 0,
-    serviceType: newOrderData.serviceType || "Trong ngày",
-    expectedPickupTime: newOrderData.expectedPickupTime || "Càng sớm càng tốt",
-    expectedDeliveryTime: newOrderData.expectedDeliveryTime || "Trong ngày",
-    quotedPrice: newOrderData.quotedPrice,
-    finalPrice: newOrderData.finalPrice || newOrderData.quotedPrice,
-    status: defaultStatus,
-    paymentStatus: newOrderData.paymentStatus || "Chưa thanh toán",
-    internalNotes: newOrderData.internalNotes || "",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+function createSessionToken(username: string) {
+  const expiresAt = Date.now() + 1000 * 60 * 60 * 12;
+  const payload = Buffer.from(JSON.stringify({ username, expiresAt })).toString("base64url");
+  return `${payload}.${signSession(payload)}`;
+}
+
+function verifySessionToken(token?: string) {
+  if (!token) return false;
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return false;
+  const expected = signSession(payload);
+  if (signature.length !== expected.length) return false;
+  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return false;
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return data.username === adminUsername && Number(data.expiresAt) > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function setAdminCookie(res: Response, token: string) {
+  const secureFlag = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.setHeader(
+    "Set-Cookie",
+    `${sessionCookieName}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200${secureFlag}`,
+  );
+}
+
+function clearAdminCookie(res: Response) {
+  res.setHeader("Set-Cookie", `${sessionCookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+}
+
+function isAdminAuthenticated(req: Request) {
+  const cookies = parseCookies(req.headers.cookie);
+  return verifySessionToken(cookies[sessionCookieName]);
+}
+
+function requireAdmin(req: Request, res: Response, next: () => void) {
+  if (!isAdminAuthenticated(req)) {
+    return res.status(401).json({ message: "Admin login required" });
+  }
+  next();
+}
+
+function asyncHandler<TReq extends Request = Request>(
+  handler: (req: TReq, res: Response) => Promise<unknown>,
+) {
+  return (req: TReq, res: Response) => {
+    handler(req, res).catch((error) => {
+      console.error(error);
+      res.status(500).json({ message: error instanceof Error ? error.message : "Internal server error" });
+    });
   };
+}
 
-  dbOrders.unshift(newOrder);
-
-  // If assigned to a schedule route directly, reduce slots
-  if (newOrderData.assignedRouteId) {
-    const routeIndex = dbRoutes.findIndex(r => r.id === newOrderData.assignedRouteId);
-    if (routeIndex !== -1 && dbRoutes[routeIndex].remainingOrderSlots > 0) {
-      dbRoutes[routeIndex].remainingOrderSlots -= 1;
-      if (dbRoutes[routeIndex].remainingOrderSlots === 0) {
-        dbRoutes[routeIndex].capacityStatus = "Đã đầy";
-      } else if (dbRoutes[routeIndex].remainingOrderSlots <= 2) {
-        dbRoutes[routeIndex].capacityStatus = "Sắp đầy";
-      }
-    }
-  }
-
-  res.status(201).json(newOrder);
+app.get("/api/health", (_req, res) => {
+  res.json({
+    status: "ok",
+    app: "Chuyen Phat 24H",
+    stack: "Vite + React + Express",
+    time: new Date().toISOString(),
+  });
 });
 
-// Update order status/payment
-app.patch("/api/orders/:id", (req: Request, res: Response) => {
-  const { id } = req.params;
-  const updates = req.body;
+app.get("/api/admin/session", (req, res) => {
+  res.json({ authenticated: isAdminAuthenticated(req), username: isAdminAuthenticated(req) ? adminUsername : null });
+});
 
-  const orderIndex = dbOrders.findIndex(o => o.id === id);
-  if (orderIndex === -1) {
-    return res.status(404).json({ message: "Không tìm thấy đơn hàng này" });
+app.post("/api/admin/login", (req, res) => {
+  const { username, password } = req.body;
+  if (username !== adminUsername || password !== adminPassword) {
+    return res.status(401).json({ message: "Sai tai khoan hoac mat khau admin." });
   }
+  setAdminCookie(res, createSessionToken(username));
+  res.json({ authenticated: true, username });
+});
 
-  const order = dbOrders[orderIndex];
-  
-  if (updates.status !== undefined) order.status = updates.status as OrderStatus;
-  if (updates.paymentStatus !== undefined) order.paymentStatus = updates.paymentStatus;
-  if (updates.assignedDriverId !== undefined) order.assignedDriverId = updates.assignedDriverId;
-  if (updates.assignedVehicleId !== undefined) order.assignedVehicleId = updates.assignedVehicleId;
-  if (updates.assignedRouteId !== undefined) order.assignedRouteId = updates.assignedRouteId;
-  if (updates.finalPrice !== undefined) order.finalPrice = Number(updates.finalPrice);
-  if (updates.quotedPrice !== undefined) order.quotedPrice = Number(updates.quotedPrice);
-  if (updates.internalNotes !== undefined) order.internalNotes = updates.internalNotes;
-  
-  order.updatedAt = new Date().toISOString();
-  dbOrders[orderIndex] = order;
+app.post("/api/admin/logout", (_req, res) => {
+  clearAdminCookie(res);
+  res.json({ authenticated: false });
+});
 
+app.get("/api/maps/autocomplete", asyncHandler(async (req, res) => {
+  const query = String(req.query.q || req.query.query || "");
+  res.json(await mapsService.searchAddress(query));
+}));
+
+app.get("/api/maps/place-detail", asyncHandler(async (req, res) => {
+  const placeId = String(req.query.placeId || "");
+  if (!placeId) return res.status(400).json({ message: "Missing placeId" });
+  const detail = await mapsService.getPlaceDetails(placeId);
+  if (!detail) return res.status(404).json({ message: "Place not found" });
+  res.json(detail);
+}));
+
+app.post("/api/maps/distance", asyncHandler(async (req, res) => {
+  const { origin, destination, originProvince, destinationProvince } = req.body;
+  if (!origin || !destination) return res.status(400).json({ message: "Missing origin or destination" });
+  res.json(await mapsService.calculateDistance({ origin, destination, originProvince, destinationProvince }));
+}));
+
+app.post("/api/orders/estimate", asyncHandler(async (req, res) => {
+  res.json(await classifyQuickOrder(req.body));
+}));
+
+app.post("/api/orders/quick-create", asyncHandler(async (req, res) => {
+  const order = await createQuickOrderFromHomeForm(req.body);
+  res.status(201).json(order);
+}));
+
+app.get("/api/orders", requireAdmin, (_req, res) => {
+  res.json(getOrders());
+});
+
+app.get("/api/notification/logs", requireAdmin, (_req, res) => {
+  res.json(getNotificationLogs());
+});
+
+app.post("/api/admin/orders/:id/approve", requireAdmin, (req, res) => {
+  const finalPrice = Number(req.body.finalPrice);
+  if (!Number.isFinite(finalPrice) || finalPrice <= 0) {
+    return res.status(400).json({ message: "finalPrice must be a positive number" });
+  }
+  const order = approveOrder(req.params.id, finalPrice, req.body.note, "admin");
+  if (!order) return res.status(404).json({ message: "Order not found" });
   res.json(order);
 });
 
-// Search order by code or phone
-app.get("/api/orders/lookup", (req: Request, res: Response) => {
-  const code = req.query.code as string;
-  const phone = req.query.phone as string;
-
-  if (!code && !phone) {
-    return res.status(400).json({ message: "Vui lòng nhập mã đơn hoặc số điện thoại để tra cứu." });
-  }
-
-  let result = dbOrders;
-  if (code) {
-    result = result.filter(o => o.orderCode.toLowerCase().includes(code.toLowerCase()));
-  }
-  if (phone) {
-    result = result.filter(o => o.senderPhone.includes(phone) || o.receiverPhone.includes(phone));
-  }
-
+app.post("/api/admin/orders/:id/assign-nearest-vehicle", requireAdmin, (req, res) => {
+  const result = assignNearestVehicle(req.params.id, "admin");
+  if (!result.order) return res.status(404).json({ message: "Order not found" });
   res.json(result);
 });
 
-// 5. Calculate Price Estimate Formula
-app.post("/api/pricing/estimate", (req: Request, res: Response) => {
-  const { pickupProvince, deliveryProvince, itemType, serviceType, weight, declaredValue, hasHelpers, isNightTime } = req.body;
-
-  if (!pickupProvince || !deliveryProvince) {
-    return res.status(400).json({ message: "Thiếu điểm đi hoặc điểm đến" });
+app.post("/api/telegram/webhook", (req, res) => {
+  const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const receivedSecret = String(req.query.secret || req.headers["x-telegram-webhook-secret"] || "");
+  if (expectedSecret && expectedSecret !== receivedSecret) {
+    return res.status(401).json({ message: "Invalid Telegram webhook secret" });
   }
 
-  // Heavy cồng kềnh, xe máy, quá khổ items require manual quote as requested
-  const manualQuoteTriggerWords = ["xe máy", "tivi", "tủ lạnh", "máy giặt", "hàng cồng kềnh", "máy công nghiệp", "hàng quá khổ", "dễ vỡ giá trị cao"];
-  const currItemTypeLower = (itemType || "").toLowerCase();
-  const requiresManualQuote = manualQuoteTriggerWords.some(word => currItemTypeLower.includes(word)) || weight > 150;
-
-  if (requiresManualQuote) {
-    return res.json({
-      isManualQuoteRequired: true,
-      message: "Sản phẩm cồng kềnh hoặc quá khổ cần nhân viên gọi điện kiểm tra kích thước thực tế và báo giá trực tiếp."
-    });
+  const commandText = String(req.body.text || req.body.message?.text || "").trim();
+  const [command, orderCode, priceText] = commandText.split(/\s+/);
+  if (!command || !orderCode) {
+    return res.status(400).json({ message: "Use: DUYET <orderCode> <finalPrice> or TIMXE <orderCode>" });
   }
 
-  // Simple pricing formula based on travel distance classification
-  // Identify origin and destination
-  const departure = pickupProvince === "Hà Nội" ? pickupProvince : deliveryProvince;
-  const destination = pickupProvince === "Hà Nội" ? deliveryProvince : pickupProvince;
-
-  // Search if a custom pricing rule exists
-  const rule = dbPricingRules.find(r => r.destinationProvince === destination || r.originProvince === departure);
-
-  let basePrice = 120000;
-  let chargePerKg = 10000;
-  let bulkySurcharge = 0;
-
-  if (rule) {
-    basePrice = rule.basePrice;
-    chargePerKg = rule.pricePerKg;
-  } else {
-    // Dynamic fallback based on city classifications
-    const ultraFastGroup = ["Bắc Ninh", "Hưng Yên", "Vĩnh Phúc", "Hà Nam", "Hải Dương", "Thái Nguyên", "Bắc Giang", "Hòa Bình"];
-    const midDayGroup = ["Hải Phòng", "Quảng Ninh", "Ninh Bình", "Nam Định", "Thái Bình", "Phú Thọ", "Tuyên Quang", "Lạng Sơn"];
-    const northWestGroup = ["Yên Bái", "Lào Cai", "Sơn La", "Lai Châu"];
-    const centralGroup = ["Thanh Hóa", "Nghệ An"];
-
-    if (ultraFastGroup.includes(destination)) {
-      basePrice = 150000;
-      chargePerKg = 8000;
-    } else if (midDayGroup.includes(destination)) {
-      basePrice = 190000;
-      chargePerKg = 12000;
-    } else if (northWestGroup.includes(destination)) {
-      basePrice = 250000;
-      chargePerKg = 15000;
-    } else if (centralGroup.includes(destination)) {
-      basePrice = 220000;
-      chargePerKg = 12000;
+  const normalizedCommand = command.toUpperCase();
+  logTelegramCommand(orderCode, commandText);
+  if (["DUYET", "GIA"].includes(normalizedCommand)) {
+    const finalPrice = Number(priceText);
+    if (!Number.isFinite(finalPrice) || finalPrice <= 0) {
+      return res.status(400).json({ message: "Missing valid final price" });
     }
+    const order = approveOrder(orderCode, finalPrice, `Telegram command: ${commandText}`, "telegram");
+    if (!order) return res.status(404).json({ message: "Order not found" });
+    return res.json({ ok: true, action: "APPROVED", order });
   }
 
-  // Weight additional calculations (First kg is included in basePrice)
-  const taxableWeight = Math.max(0, weight - 1);
-  const weightPrice = taxableWeight * chargePerKg;
-
-  let finalQuoted = basePrice + weightPrice;
-
-  // Service multipliers
-  if (serviceType === "Hỏa tốc 2-4h") {
-    finalQuoted = finalQuoted * 1.5;
-  } else if (serviceType === "Xe riêng") {
-    finalQuoted = Math.max(1200000, finalQuoted * 8); // Minimum 1.2M for private car charter
+  if (normalizedCommand === "TIMXE") {
+    const result = assignNearestVehicle(orderCode, "telegram");
+    if (!result.order) return res.status(404).json({ message: "Order not found" });
+    return res.json({ ok: true, action: "VEHICLE_ASSIGNED", ...result });
   }
 
-  // Helper surcharges
-  if (hasHelpers) finalQuoted += 50000;
-  if (isNightTime) finalQuoted += 35000;
+  return res.status(400).json({ message: "Unsupported Telegram command" });
+});
 
-  // Fragile electronics care
-  if (currItemTypeLower.includes("dễ vỡ") || currItemTypeLower.includes("điện tử")) {
-    finalQuoted += 40000;
-  }
-
-  // Declared insurance value surcharge: 0.5%
-  if (declaredValue && declaredValue > 0) {
-    finalQuoted += Math.round(declaredValue * 0.005);
-  }
-
-  // Minimum pricing protection
-  finalQuoted = Math.max(basePrice, Math.round(finalQuoted));
-
+app.get("/api/admin/summary", requireAdmin, (_req, res) => {
+  const orders = getOrders();
   res.json({
-    isManualQuoteRequired: false,
-    basePrice,
-    weightPrice,
-    surcharges: {
-      hasHelpers: hasHelpers ? 50000 : 0,
-      isNightTime: isNightTime ? 35000 : 0,
-      insurance: declaredValue ? Math.round(declaredValue * 0.005) : 0,
-    },
-    finalPrice: finalQuoted,
-    estimatedDuration: rule ? "2–4 giờ" : "Trong ngày hoặc trong 24h"
+    totalOrders: orders.length,
+    pendingConfirmation: orders.filter((order) => order.status === "PENDING_CONFIRMATION").length,
+    manualQuoteRequired: orders.filter((order) => order.manualQuoteRequired).length,
+    readyForDispatch: orders.filter((order) => order.dispatchStatus === "NOT_DISPATCHED").length,
+    dispatchedToZalo: orders.filter((order) => order.dispatchStatus === "DISPATCHED_TO_ZALO").length,
+    inTransit: orders.filter((order) => ["IN_TRANSIT", "DELIVERY_IN_PROGRESS"].includes(order.status)).length,
+    completed: orders.filter((order) => order.status === "DELIVERED").length,
+    issues: orders.filter((order) => order.status === "ISSUE_REPORTED").length,
+    zaloGroups: getZaloGroups().length,
+    partners: mockPartners.length,
+    pricingRules: mockPricingRules.length,
+    generatedAt: new Date().toISOString(),
   });
 });
 
-// 6. AI Consultant chatbot with structured assistance
-app.post("/api/ai/consult", async (req: Request, res: Response) => {
-  const { messages } = req.body;
-
-  if (!messages || !Array.isArray(messages)) {
-    return res.status(400).json({ message: "Định dạng tin nhắn không hợp lệ" });
-  }
-
-  const client = getGeminiClient();
-
-  // If no Gemini API Key of valid structure is injected, give a highly realistic pre-programmed expert logistics response!
-  if (!client) {
-    const userMessage = messages[messages.length - 1].text.toLowerCase();
-    let reply = "Xin chào! Tôi là Chuyên viên điều vận ảo của Chuyển Phát 24h. Rất vui được hỗ trợ quý khách. 🚚💨\n\nChúng tôi chuyên vận chuyển hỏa tốc liên tỉnh hai chiều xuất phát từ Hà Nội đi Bắc Ninh, Hải Phòng, Ninh Bình, Quảng Ninh, Thanh Hóa, Nghệ An, Lào Cai... với đặc trưng: Hàng đi ngay theo hệ thống xe chở khách chạy liên tục trực tiếp, không chờ gom kho.\n\n";
-
-    if (userMessage.includes("báo giá") || userMessage.includes("giá") || userMessage.includes("bao nhiêu tiền")) {
-      reply += "Dưới đây là biểu phí ước tính tối ưu:\n" +
-        "• Thư từ, Giấy tờ thầu, hồ sơ hỏa tốc: Khoảng từ 120.000đ - 180.000đ (Tốc độ giao nhanh 2-4 tiếng tận tay).\n" +
-        "• Bưu phẩm nhỏ nhẹ gọn: Khoảng 150.000đ (Tuyến siêu tốc gần như Bắc Ninh, Hưng Yên) hoặc quanh 190.000đ (như Hải Phòng, Nam Định).\n" +
-        "• Xe máy đi tỉnh hỏa tốc: Từ 850.000đ (Được chằng buộc chuyên nghiệp bằng xe tải nhỏ, bọc gói mút chống xước sát).\n\n" +
-        "Anh/Chị có thể bấm vào tab **TẠO ĐƠN GỬI HÀNG** ở trên để nhập chi tiết địa chỉ nhận/giao và nhận báo giá chính xác tự động ngay lập tức đấy ạ!";
-    } else if (userMessage.includes("điện biên") || userMessage.includes("điện biên phủ")) {
-      reply += "⚠️ Lưu ý quan trọng: Công ty chúng tôi hiện **Chưa phục vụ** các tuyến đi/về **Điện Biên** và **Điện Biên Phủ** trong giai đoạn này để giữ vững cam kết về tốc độ hỏa tốc. Rất mong anh chị thông cảm. Tuyến Tây Bắc xa nhất mà chúng tôi đang phục vụ là Lào Cai, Lai Châu và Sơn La (theo lịch trình xe chạy thực tế hằng ngày).";
-    } else if (userMessage.includes("tuyến") || userMessage.includes("đâu") || userMessage.includes("phục vụ")) {
-      reply += "Hiện Chuyển Phát 24h kết nối 2 chiều siêu nhanh Hà Nội với các khu vực:\n\n" +
-        "1️⃣ **Các tuyến siêu tốc (Giao từ 2–4 tiếng):** Bắc Ninh, Hưng Yên, Vĩnh Phúc, Hà Nam, Hải Dương, Thái Nguyên, Bắc Giang, Hòa Bình.\n" +
-        "2️⃣ **Các tuyến giao trong ngày (4-8 tiếng):** Hải Phòng, Quảng Ninh (Vân Đồn, Móng Cái), Ninh Bình, Nam Định, Thái Bình, Phú Thọ, Tuyên Quang, Lạng Sơn.\n" +
-        "3️⃣ **Các tuyến Tây Bắc (Trong 24h):** Yên Bái, Lào Cai (Sapa), Sơn La (Mộc Châu), Lai Châu.\n" +
-        "4️⃣ **Các tuyến Nam Trung Bộ:** Thanh Hóa, Nghệ An (Vinh, Cửa Lò) - Đây là hai tuyến miền Trung xa nhất mà chúng tôi đang chạy dọc QL1A.\n\n" +
-        "Quý khách cần gửi hàng theo tuyến xe nào đang trực tiếp lăn bánh ạ?";
-    } else {
-      reply += "Để tư vấn nhanh nhất phương án tối ưu, Anh/Chị vui lòng chia sẻ giúp:\n" +
-        "1. Điểm gửi (Ví dụ Hà Nội) đi tỉnh nào?\n" +
-        "2. Loại mặt hàng cần gửi (Giấy tờ, quần áo shop, xe máy, đồ điện tử...)?\n" +
-        "3. Số điện thoại nhận hỗ trợ nhanh nhất?\n\n" +
-        "Tôi sẽ tính toán gợi ý tuyến xe đang chạy trống khoang gần nhất ứng với giờ anh chị yêu cầu!";
-    }
-
-    // Delay simulation to make response feel real
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    return res.json({ text: reply });
-  }
-
-  try {
-    // Compile history
-    const contextHistory = messages.map((m: any) => ({
-      role: m.sender === "user" ? "user" : "model",
-      parts: [{ text: m.text }]
-    }));
-
-    // Add setup dynamic system instructions
-    const systemPrompt = `Bạn là Chuyên gia tư vấn logistics cao cấp kiêm Trợ lý ảo của thương hiệu "CHUYỂN PHÁT 24H" (website: chuyenphat24h.vn, hotline/Zalo: 0345 07 6789).
-Dịch vụ của chúng tôi là "Chuyển phát liên tỉnh hỏa tốc — nhận tận nơi, giao tận tay trong 2–4 giờ" xuất phát từ Hà Nội đi các tỉnh hoặc ngược lại (2 chiều).
-ĐIỂM ĐẶC BIỆT LỚN NHẤT: "Không chờ gom kho — hàng đi theo tuyến xe đang chạy". Chúng tôi tận dụng hệ thống xe dịch vụ, xe hợp đồng, xe riêng limousine chạy liên tục để gửi ghép hàng nhanh nhất.
-
-QUY TẮC PHẠM VI DỊCH VỤ BẮT BUỘC:
-- Hà Nội đi các tỉnh Miền Bắc, Thanh Hóa, Nghệ An (2 chiều).
-- KHÔNG phục vụ tuyến Hà Nội ↔ Điện Biên hoặc Điện Biên Phủ. (Nếu khách hỏi, từ chối lịch sự và tư vấn rằng tuyến Tây Bắc xa nhất là Lào Cai, Sơn La, Lai Châu).
-- Tuyến phía Nam/Bắc Trung Bộ xa nhất phục vụ là Nghệ An (TP Vinh, Diễn Châu, Cửa Lò...).
-- Tuyến SIÊU TỐC GẦN (2-4 giờ): Bắc Ninh, Hưng Yên, Vĩnh Phúc, Hà Nam, Hải Dương, Thái Nguyên, Bắc Giang, Hòa Bình.
-- Tuyến TRONG NGÀY (4-8 giờ): Hải Phòng, Quảng Ninh (Hạ Long, Cẩm Phả..), Ninh Bình, Nam Định, Thái Bình, Phú Thọ, Tuyên Quang, Lạng Sơn.
-- Tuyến Tây Bắc (Trong vòng 24h & cần xác nhận lịch xe trước): Yên Bái, Lào Cai (Sapa), Sơn La, Lai Châu.
-
-QUY TẮC BÁO GIÁ:
-- Hồ sơ giấy tờ hỏa tốc: Từ 120k đến 180k.
-- Hàng nhỏ nhẹ gọn: 100k - 190k.
-- Hàng cồng kềnh, xe máy, tivi, tủ lạnh, hàng quá khổ: "Cần nhân viên hỗ trợ gọi điện báo giá riêng dựa trên kích cỡ cân nặng thực tế".
-
-Hãy phản hồi lịch sự, ngắn gọn, giàu nhiệt huyết, chuẩn tiếng Việt bưu vận. Nhắc nhở người dùng có thể sắm ngay gói dịch vụ bằng nút "Tạo đơn gửi hàng" ở menu trên cùng để đội xe gọi rước hàng ngay lập tức! `;
-
-    const chatResponse = await client.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: [
-        { role: "user", parts: [{ text: systemPrompt }] },
-         ...contextHistory
-      ],
-      config: {
-        temperature: 0.7,
-      }
-    });
-
-    res.json({ text: chatResponse.text });
-  } catch (error: any) {
-    console.error("Gemini API Error in consult:", error);
-    res.status(500).json({ message: "Có vấn đề phát sinh lúc kết nối AI. Vui lòng chat lại.", error: error.message });
-  }
+app.get("/api/admin/workspace", requireAdmin, (_req, res) => {
+  res.json({
+    orders: getOrders(),
+    zaloGroups: getZaloGroups(),
+    routes: mockRoutes,
+    pricingRules: mockPricingRules,
+    partners: mockPartners,
+    partnerApplications: getPartnerApplications(),
+    seoPages,
+    dispatchLogs: getDispatchLogs(),
+  });
 });
 
-// 7. AI Smart dispatching and pricing for Admin Dashboard
-app.post("/api/ai/admin-suggest", async (req: Request, res: Response) => {
-  const { orderId } = req.body;
-  const order = dbOrders.find(o => o.id === orderId);
+app.patch("/api/orders/:id", requireAdmin, (req, res) => {
+  const order = updateOrder(req.params.id, req.body);
+  if (!order) return res.status(404).json({ message: "Order not found" });
+  res.json(order);
+});
 
-  if (!order) {
-    return res.status(404).json({ message: "Không tìm thấy đơn hàng cần phân tích" });
+app.post("/api/orders/track", (req, res) => {
+  const { orderCode, phone } = req.body;
+  if (!orderCode || !phone) {
+    return res.status(400).json({ message: "Nhap ma don va so dien thoai de tra cuu." });
   }
+  const tracking = getPublicTrackingInfo(getOrders(), orderCode, phone);
+  if (!tracking) return res.status(404).json({ message: "Khong tim thay don phu hop." });
+  res.json(tracking);
+});
 
-  // Smart Matching logic
-  // Look for route that has same origin and destination province or travel direction
-  // Look for driver that runs the destination
-  const matches = dbRoutes.filter(r => 
-    r.destinationProvince === order.deliveryProvince && 
-    r.routeStatus === "Đang nhận hàng" &&
-    r.remainingOrderSlots > 0
+app.get("/api/orders/lookup", requireAdmin, (req, res) => {
+  const code = String(req.query.code || "").toLowerCase();
+  const phone = String(req.query.phone || "");
+  const orders = getOrders().filter((order) =>
+    (!code || order.orderCode.toLowerCase().includes(code)) &&
+    (!phone || order.senderPhone.includes(phone) || order.receiverPhone.includes(phone)),
   );
+  res.json(orders);
+});
 
-  let suggestedRoute = matches[0] || null;
-  let clientMessage = "";
+app.post("/api/dispatch/preview", requireAdmin, (req, res) => {
+  const order = getOrders().find((item) => item.id === req.body.orderId || item.orderCode === req.body.orderCode);
+  if (!order) return res.status(404).json({ message: "Order not found" });
+  res.json(addDispatchPreviewLog(order));
+});
 
-  if (suggestedRoute) {
-    clientMessage = `Kính gửi anh/chị ${order.senderName}, đơn hàng hỏa tốc ${order.orderCode} (chuyển đi ${order.deliveryProvince}) đã được Chuyển Phát 24H xếp chuyến hành trình tốc hành lúc ${suggestedRoute.departureTime}. Đội ngũ tài xế xe sẽ liên hệ lấy hàng trong vòng 15-30 phút tới. Hotline hỗ trợ 24/7: 0345076789.`;
-  } else {
-    // Generate private/charter warning message
-    clientMessage = `Chuyển Phát 24H kính chào anh/chị ${order.senderName}. Đơn hàng ${order.orderCode} đi tuyến xa ${order.deliveryProvince} dạng ${order.serviceType} đang được nhân viên phối hợp điều động xe hỏa tốc hoặc ghép với lái xe limousine chuyên tỉnh sớm nhất. Hotline phản hồi: 0345076789.`;
+app.post("/api/dispatch/send", requireAdmin, (req, res) => {
+  const order = getOrders().find((item) => item.id === req.body.orderId || item.orderCode === req.body.orderCode);
+  if (!order) return res.status(404).json({ message: "Order not found" });
+  const result = sendOrderToZaloGroups(order, "ADMIN");
+  updateOrder(order.id, result.updates);
+  res.json(result);
+});
+
+app.get("/api/dispatch/logs", requireAdmin, (_req, res) => {
+  res.json(getDispatchLogs());
+});
+
+app.post("/api/bot/parse", requireAdmin, (req, res) => {
+  res.json(parseDriverCommand(String(req.body.commandText || "")));
+});
+
+app.get("/api/zalo-groups", requireAdmin, (_req, res) => {
+  res.json(getZaloGroups());
+});
+
+app.get("/api/routes", (_req, res) => {
+  res.json(mockRoutes);
+});
+
+app.get("/api/pricing-rules", requireAdmin, (_req, res) => {
+  res.json(mockPricingRules);
+});
+
+app.get("/api/partners", requireAdmin, (_req, res) => {
+  res.json(mockPartners);
+});
+
+app.get("/api/partner-applications", requireAdmin, (_req, res) => {
+  res.json(getPartnerApplications());
+});
+
+app.post("/api/partner-applications", (req, res) => {
+  const { name, phone, vehicleType, vehiclePlate, usualRoutes, provinces, canCarryBulkyGoods, note } = req.body;
+  if (!name || !phone || !vehicleType) {
+    return res.status(400).json({ message: "Missing required partner application fields" });
   }
-
-  res.json({
-    orderStatus: order.status,
-    routeMatches: matches,
-    suggestedRoute,
-    suggestedPrice: order.quotedPrice || 150000,
-    generatedSmsTemplate: clientMessage,
-    confidenceIndex: suggestedRoute ? "Cao (Có tuyến xe thật chạy ghép ngay)" : "Trung bình (Cần nhân viên liên hệ xe riêng/hợp đồng)"
-  });
+  res.status(201).json(createPartnerApplication({
+    name,
+    phone,
+    vehicleType,
+    vehiclePlate,
+    usualRoutes: Array.isArray(usualRoutes) ? usualRoutes : String(usualRoutes || "").split(",").map((item) => item.trim()).filter(Boolean),
+    provinces: Array.isArray(provinces) ? provinces : String(provinces || "").split(",").map((item) => item.trim()).filter(Boolean),
+    canCarryBulkyGoods: Boolean(canCarryBulkyGoods),
+    note,
+  }));
 });
 
-// --- Telegram Webhook Placeholder ---
-app.post("/api/telegram/webhook", (req: Request, res: Response) => {
-  const { message } = req.body;
-  console.log(`[Telegram Broadcast Bot Simulate]: Sending telegram dispatch payload -> ${JSON.stringify(message)}`);
-  res.json({ success: true, logged: true });
+app.get("/api/seo-pages", (_req, res) => {
+  res.json(seoPages);
 });
 
-// Production and Development build serving configurations
-let appSetup = async () => {
+async function setupApp() {
   if (process.env.NODE_ENV !== "production") {
-    // Mounting Vite middleware
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -457,14 +399,14 @@ let appSetup = async () => {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server Chuyển Phát 24h operational on http://localhost:${PORT}`);
+    console.log(`Chuyen Phat 24H running on http://localhost:${PORT}`);
   });
-};
+}
 
-appSetup();
+setupApp();
