@@ -1,11 +1,18 @@
 import type { PartnerApplication } from "../types";
 import { mockPartnerApplications, mockPartners } from "../../data/mockPartners";
 import { readJsonArray, writeJsonArray } from "../storage/jsonStore";
+import { loadPersistentCollection, persistCollection } from "../storage/persistentStore";
 
 let applications: PartnerApplication[] = readJsonArray<PartnerApplication>("partnerApplications.json", mockPartnerApplications);
 
 function persistApplications() {
   writeJsonArray("partnerApplications.json", applications);
+  persistCollection("partnerApplications", applications);
+}
+
+export async function hydratePartnerStorage() {
+  applications = await loadPersistentCollection<PartnerApplication>("partnerApplications", applications);
+  persistApplications();
 }
 
 export function createPartnerApplication(payload: Omit<PartnerApplication, "id" | "status" | "createdAt">) {

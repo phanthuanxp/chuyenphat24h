@@ -2,11 +2,18 @@ import { DispatchStatus, OrderStatus, Visibility } from "../constants/enums";
 import type { DriverCandidate, Order, OrderTimelineEvent } from "../types";
 import { mockOrders } from "../../data/mockOrders";
 import { readJsonArray, writeJsonArray } from "../storage/jsonStore";
+import { loadPersistentCollection, persistCollection } from "../storage/persistentStore";
 
 let orders: Order[] = readJsonArray<Order>("orders.json", mockOrders);
 
 function persistOrders() {
   writeJsonArray("orders.json", orders);
+  persistCollection("orders", orders);
+}
+
+export async function hydrateOrderStorage() {
+  orders = await loadPersistentCollection<Order>("orders", orders);
+  persistOrders();
 }
 
 export function getOrders() {

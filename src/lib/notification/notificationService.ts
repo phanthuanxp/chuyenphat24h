@@ -1,10 +1,17 @@
 import type { NotificationLog, Order } from "../types";
 import { readJsonArray, writeJsonArray } from "../storage/jsonStore";
+import { loadPersistentCollection, persistCollection } from "../storage/persistentStore";
 
 let notificationLogs = readJsonArray<NotificationLog>("notificationLogs.json", []);
 
 function persistNotificationLogs() {
   writeJsonArray("notificationLogs.json", notificationLogs);
+  persistCollection("notificationLogs", notificationLogs);
+}
+
+export async function hydrateNotificationStorage() {
+  notificationLogs = await loadPersistentCollection<NotificationLog>("notificationLogs", notificationLogs);
+  persistNotificationLogs();
 }
 
 function createNotificationLog(payload: Omit<NotificationLog, "id" | "createdAt" | "status"> & { status?: NotificationLog["status"] }) {

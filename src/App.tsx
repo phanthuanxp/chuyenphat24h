@@ -897,7 +897,7 @@ function AdminPage() {
           {activeModule === "customers" && <AdminPlaceholder title="Khách hàng" icon={Users} rows={["Shop online", "Khách cá nhân", "Doanh nghiệp gửi hồ sơ"]} />}
           {activeModule === "pricing" && <AdminPlaceholder title="Bảng giá" icon={WalletCards} rows={["Giấy tờ tuyến gần từ 150.000đ", "Hàng shop trong ngày từ 190.000đ", "Xe máy / hàng cồng kềnh báo giá thủ công"]} />}
           {activeModule === "seo" && <AdminPlaceholder title="Nội dung SEO" icon={FileSearch} rows={["chuyen-phat-hoa-toc-lien-tinh", "gui-giay-to-hoa-toc-di-tinh", "chuyen-phat-ha-noi-nghe-an"]} />}
-          {activeModule === "settings" && <AdminPlaceholder title="Cài đặt hệ thống" icon={Settings} rows={["MAPS_PROVIDER=mock", "ZALO dispatch mock", "DATABASE_URL chưa nối"]} />}
+          {activeModule === "settings" && <AdminPlaceholder title="Cài đặt hệ thống" icon={Settings} rows={["MAPS_PROVIDER=mock", "ZALO dispatch mock", "PostgreSQL storage qua DATABASE_URL"]} />}
         </div>
       </div>
     </section>

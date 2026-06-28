@@ -2,11 +2,18 @@ import { DispatchStatus, OrderStatus } from "../constants/enums";
 import type { AIDispatchLog, Order } from "../types";
 import { generateDriverBroadcastMessage, suggestZaloGroups } from "./aiDispatchService";
 import { readJsonArray, writeJsonArray } from "../storage/jsonStore";
+import { loadPersistentCollection, persistCollection } from "../storage/persistentStore";
 
 let dispatchLogs: AIDispatchLog[] = readJsonArray<AIDispatchLog>("dispatchLogs.json", []);
 
 function persistDispatchLogs() {
   writeJsonArray("dispatchLogs.json", dispatchLogs);
+  persistCollection("dispatchLogs", dispatchLogs);
+}
+
+export async function hydrateDispatchStorage() {
+  dispatchLogs = await loadPersistentCollection<AIDispatchLog>("dispatchLogs", dispatchLogs);
+  persistDispatchLogs();
 }
 
 export function prepareOrderForDispatch(order: Order) {

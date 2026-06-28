@@ -6,7 +6,7 @@ Tai lieu nay gia dinh VPS dung Ubuntu 22.04/24.04, Node.js 20+, Nginx va PM2.
 
 ```bash
 sudo apt update
-sudo apt install -y git nginx curl
+sudo apt install -y git nginx curl postgresql postgresql-contrib
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 sudo npm install -g pm2
@@ -19,6 +19,7 @@ node -v
 npm -v
 pm2 -v
 nginx -v
+psql --version
 ```
 
 ## 2. Clone repo
@@ -36,6 +37,17 @@ Sau khi merge vao `main`, co the checkout `main` thay cho branch tren.
 
 ## 3. Cau hinh env
 
+Tao PostgreSQL database production:
+
+```bash
+sudo -u postgres psql
+CREATE DATABASE chuyenphat24h;
+CREATE USER cp24h_user WITH ENCRYPTED PASSWORD 'doi-mat-khau-db-nay';
+GRANT ALL PRIVILEGES ON DATABASE chuyenphat24h TO cp24h_user;
+ALTER DATABASE chuyenphat24h OWNER TO cp24h_user;
+\q
+```
+
 ```bash
 cp .env.example .env
 nano .env
@@ -51,9 +63,17 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=doi-mat-khau-nay
 ADMIN_SESSION_SECRET=chuoi-random-that-dai
 CP24H_STORAGE_DIR=storage
+DATABASE_URL=postgresql://cp24h_user:doi-mat-khau-db-nay@127.0.0.1:5432/chuyenphat24h
+DATABASE_SSL=false
 ```
 
 Khong dua `.env` len git.
+
+Neu `DATABASE_URL` duoc set, app tu tao bang `app_records` khi start. Co the chay schema thu cong neu muon:
+
+```bash
+psql "$DATABASE_URL" -f deploy/database/schema.sql
+```
 
 ## 4. Cai dependencies va build
 
@@ -81,6 +101,8 @@ pm2 status
 pm2 logs chuyenphat24h
 curl http://127.0.0.1:3010/api/health
 ```
+
+Healthcheck dung tren production se co `"storage":"postgres"`. Neu hien `"storage":"json"` nghia la VPS chua set `DATABASE_URL`.
 
 ## 6. Cau hinh Nginx
 
@@ -170,11 +192,11 @@ Ket qua dung co dang:
 
 ## 11. Nhung phan dang mock
 
-- Database hien dang in-memory, restart server se mat don moi.
+- Database production dung PostgreSQL khi VPS set `DATABASE_URL`; neu chua set se fallback JSON trong `storage/`.
 - Maps dang la mock provider.
 - Zalo dispatch dang la mock log, chua gui Zalo that.
 - Admin chua co auth.
 - AdminCP da co login cookie co ban bang env.
-- Don hang, dispatch logs va ung tuyen doi tac dang luu JSON trong `storage/`.
+- Don hang, dispatch logs va ung tuyen doi tac luu trong PostgreSQL khi `DATABASE_URL` hoat dong; `storage/` la fallback/seed an toan.
 
-Truoc khi chay production lon can uu tien: database SQL + phan quyen admin + logging/backup storage.
+Truoc khi chay production lon can uu tien: backup PostgreSQL tu dong + phan quyen admin chi tiet + logging/monitoring.

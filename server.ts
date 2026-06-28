@@ -1,25 +1,24 @@
-import dotenv from "dotenv";
+import "dotenv/config";
 import express, { Request, Response } from "express";
 import crypto from "node:crypto";
 import path from "node:path";
 import { createServer as createViteServer } from "vite";
 import { mapsService } from "./src/lib/maps/mapsService";
 import { classifyQuickOrder, createQuickOrderFromHomeForm } from "./src/lib/orders/quickOrderService";
-import { addTimelineEvent, assignDriverToOrder, getOrders, updateOrder } from "./src/lib/orders/orderService";
+import { addTimelineEvent, assignDriverToOrder, getOrders, hydrateOrderStorage, updateOrder } from "./src/lib/orders/orderService";
 import { getPublicTrackingInfo } from "./src/lib/tracking/trackingService";
-import { addDispatchPreviewLog, getDispatchLogs, sendOrderToZaloGroups } from "./src/lib/dispatch/dispatchService";
+import { addDispatchPreviewLog, getDispatchLogs, hydrateDispatchStorage, sendOrderToZaloGroups } from "./src/lib/dispatch/dispatchService";
 import { parseDriverCommand } from "./src/lib/zalo/botCommandParser";
 import { getZaloGroups } from "./src/lib/zalo/zaloGroupService";
-import { getPartnerApplications, createPartnerApplication } from "./src/lib/partners/driverPartnerService";
+import { getPartnerApplications, createPartnerApplication, hydratePartnerStorage } from "./src/lib/partners/driverPartnerService";
 import { createDriverCandidateFromPartner, findNearestVehicleForOrder } from "./src/lib/partners/nearestVehicleService";
-import { getNotificationLogs, logTelegramCommand, mockSendCustomerZaloOrderApproved, mockSendCustomerZaloVehicleAssigned } from "./src/lib/notification/notificationService";
+import { getNotificationLogs, hydrateNotificationStorage, logTelegramCommand, mockSendCustomerZaloOrderApproved, mockSendCustomerZaloVehicleAssigned } from "./src/lib/notification/notificationService";
 import { DispatchStatus, OrderStatus, Visibility } from "./src/lib/constants/enums";
 import { mockRoutes } from "./src/data/mockRoutes";
 import { mockPricingRules } from "./src/data/mockPricing";
 import { mockPartners } from "./src/data/mockPartners";
 import { seoPages } from "./src/lib/seo/seoPages";
-
-dotenv.config();
+import { initializePersistentStore, isDatabaseEnabled } from "./src/lib/storage/persistentStore";
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -161,6 +160,7 @@ app.get("/api/health", (_req, res) => {
     status: "ok",
     app: "Chuyen Phat 24H",
     stack: "Vite + React + Express",
+    storage: isDatabaseEnabled() ? "postgres" : "json",
     time: new Date().toISOString(),
   });
 });
@@ -390,6 +390,14 @@ app.get("/api/seo-pages", (_req, res) => {
 });
 
 async function setupApp() {
+  await initializePersistentStore();
+  await Promise.all([
+    hydrateOrderStorage(),
+    hydrateDispatchStorage(),
+    hydrateNotificationStorage(),
+    hydratePartnerStorage(),
+  ]);
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
