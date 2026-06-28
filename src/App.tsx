@@ -31,12 +31,32 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { ITEM_TYPE_LABELS, ItemType, STATUS_LABELS } from "./lib/constants/enums";
+import { ITEM_TYPE_LABELS, ItemType, OrderStatus, STATUS_LABELS } from "./lib/constants/enums";
 import type { MapsAddress, Order, PublicTrackingInfo, RouteEstimate } from "./lib/types";
 import { ThemeLanding } from "./components/ThemeLanding";
 
 type View = "home" | "order" | "tracking" | "routes" | "pricing" | "policy" | "contact" | "admin" | "seo";
 type AdminModule = "dashboard" | "orders" | "dispatch" | "zalo" | "routes" | "partners" | "customers" | "pricing" | "seo" | "settings";
+type AdminOrderEditPayload = Partial<
+  Pick<
+    Order,
+    | "senderName"
+    | "senderPhone"
+    | "pickupAddress"
+    | "receiverName"
+    | "receiverPhone"
+    | "deliveryAddress"
+    | "itemDescription"
+    | "packageCount"
+    | "weight"
+    | "quotedPrice"
+    | "finalPrice"
+    | "customerTrackingNote"
+  >
+> & {
+  status?: OrderStatus;
+  operationNote?: string;
+};
 
 const hotline = "0345 07 6789";
 const heroImage =
@@ -66,6 +86,7 @@ const adminModules: Array<{ id: AdminModule; label: string; icon: React.ElementT
 ];
 
 const itemOptions = Object.values(ItemType);
+const adminOrderStatusOptions = Array.from(new Set(Object.values(OrderStatus)));
 const phoneHref = "tel:0345076789";
 
 function getInitialView(): View {
@@ -844,6 +865,26 @@ function AdminPage() {
     await loadOrders();
   }
 
+  async function saveSelectedOrder(updates: AdminOrderEditPayload) {
+    if (!selectedOrder) return;
+    const res = await fetch(`/api/admin/orders/${selectedOrder.id}/edit`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    if (res.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || "Khong luu duoc don hang.");
+    }
+    const updatedOrder = data as Order;
+    setOrders((current) => current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)));
+    setSelectedOrderId(updatedOrder.id);
+  }
+
   if (checkingSession) {
     return (
       <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
@@ -889,7 +930,7 @@ function AdminPage() {
 
         <div className="min-w-0">
           {activeModule === "dashboard" && <AdminDashboard orders={orders} />}
-          {activeModule === "orders" && <AdminOrders orders={orders} selectedOrderId={selectedOrderId} setSelectedOrderId={setSelectedOrderId} selectedOrder={selectedOrder} onApprove={approveSelectedOrder} onAssignVehicle={assignNearestVehicleToSelectedOrder} />}
+          {activeModule === "orders" && <AdminOrders orders={orders} selectedOrderId={selectedOrderId} setSelectedOrderId={setSelectedOrderId} selectedOrder={selectedOrder} onApprove={approveSelectedOrder} onAssignVehicle={assignNearestVehicleToSelectedOrder} onSave={saveSelectedOrder} />}
           {activeModule === "dispatch" && <AdminDispatch selectedOrder={selectedOrder} preview={preview} previewDispatch={previewDispatch} sendDispatch={sendDispatch} />}
           {activeModule === "zalo" && <AdminPlaceholder title="Nhóm Zalo tuyến" icon={MessageSquare} rows={["CP24H Hà Nội - Bắc Ninh", "CP24H Hà Nội - Hải Phòng", "CP24H Tây Bắc - Lào Cai", "CP24H Hàng cồng kềnh / xe máy"]} />}
           {activeModule === "routes" && <AdminPlaceholder title="Tuyến xe" icon={RouteIcon} rows={["Tuyến gần Hà Nội", "Tuyến trong ngày", "Tuyến Tây Bắc cần xác nhận", "Thanh Hóa / Nghệ An 24h"]} />}
@@ -1001,6 +1042,7 @@ function AdminOrders({
   selectedOrder,
   onApprove,
   onAssignVehicle,
+  onSave,
 }: {
   orders: Order[];
   selectedOrderId: string;
@@ -1008,6 +1050,7 @@ function AdminOrders({
   selectedOrder?: Order;
   onApprove: (finalPrice: number, note: string) => void;
   onAssignVehicle: () => void;
+  onSave: (updates: AdminOrderEditPayload) => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -1152,7 +1195,7 @@ function AdminOrders({
           </table>
         </div>
       </div>
-      <OrderDetail order={selectedOrder} onApprove={onApprove} onAssignVehicle={onAssignVehicle} />
+      <OrderDetail order={selectedOrder} onApprove={onApprove} onAssignVehicle={onAssignVehicle} onSave={onSave} />
     </div>
   );
 }
@@ -1161,18 +1204,78 @@ function OrderDetail({
   order,
   onApprove,
   onAssignVehicle,
+  onSave,
 }: {
   order?: Order;
   onApprove: (finalPrice: number, note: string) => void;
   onAssignVehicle: () => void;
+  onSave: (updates: AdminOrderEditPayload) => Promise<void>;
 }) {
   const [finalPrice, setFinalPrice] = useState(0);
   const [approvalNote, setApprovalNote] = useState("Duyet gia tu AdminCP");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [editMessage, setEditMessage] = useState("");
+  const [editForm, setEditForm] = useState({
+    senderName: "",
+    senderPhone: "",
+    pickupAddress: "",
+    receiverName: "",
+    receiverPhone: "",
+    deliveryAddress: "",
+    itemDescription: "",
+    packageCount: 1,
+    weight: 0,
+    quotedPrice: 0,
+    finalPrice: 0,
+    status: OrderStatus.PENDING_CONFIRMATION,
+    customerTrackingNote: "",
+    operationNote: "",
+  });
 
   useEffect(() => {
     setFinalPrice(order?.finalPrice || order?.quotedPrice || 0);
     setApprovalNote("Duyet gia tu AdminCP");
-  }, [order?.id, order?.finalPrice, order?.quotedPrice]);
+    setEditError("");
+    setEditMessage("");
+    setEditForm({
+      senderName: order?.senderName || "",
+      senderPhone: order?.senderPhone || "",
+      pickupAddress: order?.pickupAddress || "",
+      receiverName: order?.receiverName || "",
+      receiverPhone: order?.receiverPhone || "",
+      deliveryAddress: order?.deliveryAddress || "",
+      itemDescription: order?.itemDescription || "",
+      packageCount: order?.packageCount || 1,
+      weight: order?.weight || 0,
+      quotedPrice: order?.quotedPrice || 0,
+      finalPrice: order?.finalPrice || 0,
+      status: order?.status || OrderStatus.PENDING_CONFIRMATION,
+      customerTrackingNote: order?.customerTrackingNote || "",
+      operationNote: "",
+    });
+  }, [order?.id, order?.updatedAt, order?.finalPrice, order?.quotedPrice]);
+
+  async function submitOrderEdit(event: React.FormEvent) {
+    event.preventDefault();
+    setSavingEdit(true);
+    setEditError("");
+    setEditMessage("");
+    try {
+      await onSave({
+        ...editForm,
+        packageCount: Number(editForm.packageCount) || 1,
+        weight: Number(editForm.weight) || 0,
+        quotedPrice: Number(editForm.quotedPrice) || undefined,
+        finalPrice: Number(editForm.finalPrice) || undefined,
+      });
+      setEditMessage("Da luu cap nhat don hang.");
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : "Khong luu duoc don hang.");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
 
   if (!order) {
     return <div className="rounded border border-slate-200 bg-white p-5 text-sm font-semibold text-slate-500">Chọn một đơn để xem chi tiết.</div>;
@@ -1195,6 +1298,79 @@ function OrderDetail({
         <Info label="Xe nhan don" value={order.assignedDriverName ? `${order.assignedDriverName} - ${order.assignedDriverPhone} - ${order.assignedVehicleType} ${order.assignedVehiclePlate || ""}` : "Chua gan xe"} />
         <Info label="Ghi chú nội bộ" value={order.internalNotes || "Chưa có"} />
       </div>
+      <form onSubmit={submitOrderEdit} className="mt-5 rounded border border-slate-200 bg-slate-50 p-4">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="font-black">Sua don / trang thai / ghi chu</h3>
+          <StatusBadge status={STATUS_LABELS[editForm.status]} />
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label>
+            <FieldLabel>Ten khach gui</FieldLabel>
+            <input value={editForm.senderName} onChange={(event) => setEditForm((current) => ({ ...current, senderName: event.target.value }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>SDT khach gui</FieldLabel>
+            <input value={editForm.senderPhone} onChange={(event) => setEditForm((current) => ({ ...current, senderPhone: event.target.value }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>Ten nguoi nhan</FieldLabel>
+            <input value={editForm.receiverName} onChange={(event) => setEditForm((current) => ({ ...current, receiverName: event.target.value }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>SDT nguoi nhan</FieldLabel>
+            <input value={editForm.receiverPhone} onChange={(event) => setEditForm((current) => ({ ...current, receiverPhone: event.target.value }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label className="sm:col-span-2">
+            <FieldLabel>Dia chi lay hang</FieldLabel>
+            <textarea value={editForm.pickupAddress} onChange={(event) => setEditForm((current) => ({ ...current, pickupAddress: event.target.value }))} rows={2} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label className="sm:col-span-2">
+            <FieldLabel>Dia chi giao hang</FieldLabel>
+            <textarea value={editForm.deliveryAddress} onChange={(event) => setEditForm((current) => ({ ...current, deliveryAddress: event.target.value }))} rows={2} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label className="sm:col-span-2">
+            <FieldLabel>Mo ta hang</FieldLabel>
+            <textarea value={editForm.itemDescription} onChange={(event) => setEditForm((current) => ({ ...current, itemDescription: event.target.value }))} rows={2} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>So kien</FieldLabel>
+            <input type="number" min={1} value={editForm.packageCount} onChange={(event) => setEditForm((current) => ({ ...current, packageCount: Number(event.target.value) || 1 }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>Can nang kg</FieldLabel>
+            <input type="number" min={0} step={0.1} value={editForm.weight} onChange={(event) => setEditForm((current) => ({ ...current, weight: Number(event.target.value) || 0 }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>Gia de xuat</FieldLabel>
+            <input type="number" min={0} step={1000} value={editForm.quotedPrice} onChange={(event) => setEditForm((current) => ({ ...current, quotedPrice: Number(event.target.value) || 0 }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>Gia da duyet</FieldLabel>
+            <input type="number" min={0} step={1000} value={editForm.finalPrice} onChange={(event) => setEditForm((current) => ({ ...current, finalPrice: Number(event.target.value) || 0 }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label className="sm:col-span-2">
+            <FieldLabel>Trang thai don</FieldLabel>
+            <select value={editForm.status} onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value as OrderStatus }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold">
+              {adminOrderStatusOptions.map((status) => (
+                <option key={status} value={status}>{STATUS_LABELS[status]}</option>
+              ))}
+            </select>
+          </label>
+          <label className="sm:col-span-2">
+            <FieldLabel>Ghi chu cho khach tra cuu</FieldLabel>
+            <textarea value={editForm.customerTrackingNote} onChange={(event) => setEditForm((current) => ({ ...current, customerTrackingNote: event.target.value }))} rows={2} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label className="sm:col-span-2">
+            <FieldLabel>Them ghi chu noi bo</FieldLabel>
+            <textarea value={editForm.operationNote} onChange={(event) => setEditForm((current) => ({ ...current, operationNote: event.target.value }))} rows={3} placeholder="Vi du: Khach doi gio lay hang, da goi xac nhan..." className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+        </div>
+        {editError && <div className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{editError}</div>}
+        {editMessage && <div className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-700">{editMessage}</div>}
+        <button type="submit" disabled={savingEdit} className="mt-4 w-full rounded bg-slate-950 px-4 py-2 text-sm font-black text-white disabled:opacity-60">
+          {savingEdit ? "Dang luu..." : "Luu cap nhat don"}
+        </button>
+      </form>
       {Boolean(order.timeline?.length) && (
         <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4">
           <h3 className="text-sm font-black">Lich su xu ly gan nhat</h3>

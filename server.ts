@@ -13,7 +13,7 @@ import { getZaloGroups } from "./src/lib/zalo/zaloGroupService";
 import { getPartnerApplications, createPartnerApplication, hydratePartnerStorage } from "./src/lib/partners/driverPartnerService";
 import { createDriverCandidateFromPartner, findNearestVehicleForOrder } from "./src/lib/partners/nearestVehicleService";
 import { getNotificationLogs, hydrateNotificationStorage, logTelegramCommand, mockSendCustomerZaloOrderApproved, mockSendCustomerZaloVehicleAssigned } from "./src/lib/notification/notificationService";
-import { DispatchStatus, OrderStatus, Visibility } from "./src/lib/constants/enums";
+import { DispatchStatus, OrderStatus, STATUS_LABELS, Visibility } from "./src/lib/constants/enums";
 import { mockRoutes } from "./src/data/mockRoutes";
 import { mockPricingRules } from "./src/data/mockPricing";
 import { mockPartners } from "./src/data/mockPartners";
@@ -26,6 +26,18 @@ const adminUsername = process.env.ADMIN_USERNAME || "admin";
 const adminPassword = process.env.ADMIN_PASSWORD || "change-me-now";
 const sessionSecret = process.env.ADMIN_SESSION_SECRET || "cp24h-dev-session-secret";
 const sessionCookieName = "cp24h_admin_session";
+const validOrderStatuses = new Set(Object.values(OrderStatus));
+const editableOrderTextFields = [
+  "senderName",
+  "senderPhone",
+  "pickupAddress",
+  "receiverName",
+  "receiverPhone",
+  "deliveryAddress",
+  "itemDescription",
+  "customerTrackingNote",
+] as const;
+const editableOrderNumberFields = ["packageCount", "weight", "quotedPrice", "finalPrice"] as const;
 
 app.use(express.json({ limit: "10mb" }));
 
@@ -84,6 +96,94 @@ function assignNearestVehicle(orderIdOrCode: string, actor = "admin") {
     return { order: findOrder(order.id), vehicle };
   }
   return { order: null, vehicle };
+}
+
+function updateAdminOrder(orderIdOrCode: string, payload: Record<string, unknown>, actor = "admin") {
+  const order = findOrder(orderIdOrCode);
+  if (!order) return { order: null, error: "Order not found" };
+
+  const updates: Record<string, unknown> = {};
+  const changedFields: string[] = [];
+
+  for (const field of editableOrderTextFields) {
+    if (!(field in payload)) continue;
+    const nextValue = String(payload[field] ?? "").trim();
+    if (nextValue !== String(order[field] ?? "")) {
+      updates[field] = nextValue || undefined;
+      changedFields.push(field);
+    }
+  }
+
+  for (const field of editableOrderNumberFields) {
+    if (!(field in payload)) continue;
+    const rawValue = payload[field];
+    const nextValue = rawValue === "" || rawValue === null || rawValue === undefined ? undefined : Number(rawValue);
+    if (nextValue !== undefined && (!Number.isFinite(nextValue) || nextValue < 0)) {
+      return { order: null, error: `${field} must be a valid number` };
+    }
+    if (field === "packageCount" && nextValue !== undefined && nextValue < 1) {
+      return { order: null, error: "packageCount must be at least 1" };
+    }
+    if (nextValue !== order[field]) {
+      updates[field] = nextValue;
+      changedFields.push(field);
+    }
+  }
+
+  const nextStatus = typeof payload.status === "string" ? payload.status : undefined;
+  if (nextStatus) {
+    if (!validOrderStatuses.has(nextStatus as OrderStatus)) {
+      return { order: null, error: "Invalid order status" };
+    }
+    if (nextStatus !== order.status) {
+      updates.status = nextStatus;
+      changedFields.push("status");
+    }
+  }
+
+  const operationNote = String(payload.operationNote || "").trim();
+  if (operationNote) {
+    const noteLine = `[${new Date().toLocaleString("vi-VN")}] ${actor}: ${operationNote}`;
+    updates.internalNotes = [order.internalNotes, noteLine].filter(Boolean).join("\n");
+    changedFields.push("internalNotes");
+  }
+
+  if (!changedFields.length) {
+    return { order, error: null };
+  }
+
+  const updated = updateOrder(order.id, updates);
+  if (!updated) return { order: null, error: "Order not found" };
+
+  if (updates.status) {
+    addTimelineEvent(order.id, {
+      eventType: "ORDER_STATUS_UPDATED",
+      title: "Cap nhat trang thai don",
+      description: `Trang thai moi: ${STATUS_LABELS[updates.status as OrderStatus] || updates.status}.`,
+      visibility: Visibility.PUBLIC_CUSTOMER,
+      createdBy: actor,
+    });
+  }
+
+  if (operationNote) {
+    addTimelineEvent(order.id, {
+      eventType: "INTERNAL_NOTE_ADDED",
+      title: "Them ghi chu noi bo",
+      description: operationNote,
+      visibility: Visibility.ADMIN_ONLY,
+      createdBy: actor,
+    });
+  } else if (changedFields.some((field) => field !== "status")) {
+    addTimelineEvent(order.id, {
+      eventType: "ORDER_ADMIN_EDITED",
+      title: "Cap nhat thong tin don",
+      description: `Da cap nhat: ${changedFields.filter((field) => field !== "status").join(", ")}.`,
+      visibility: Visibility.ADMIN_ONLY,
+      createdBy: actor,
+    });
+  }
+
+  return { order: findOrder(order.id), error: null };
 }
 
 function parseCookies(cookieHeader = "") {
@@ -235,6 +335,14 @@ app.post("/api/admin/orders/:id/assign-nearest-vehicle", requireAdmin, (req, res
   res.json(result);
 });
 
+app.patch("/api/admin/orders/:id/edit", requireAdmin, (req, res) => {
+  const result = updateAdminOrder(req.params.id, req.body, "admin");
+  if (result.error) {
+    return res.status(result.error === "Order not found" ? 404 : 400).json({ message: result.error });
+  }
+  res.json(result.order);
+});
+
 app.post("/api/telegram/webhook", (req, res) => {
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
   const receivedSecret = String(req.query.secret || req.headers["x-telegram-webhook-secret"] || "");
@@ -301,9 +409,11 @@ app.get("/api/admin/workspace", requireAdmin, (_req, res) => {
 });
 
 app.patch("/api/orders/:id", requireAdmin, (req, res) => {
-  const order = updateOrder(req.params.id, req.body);
-  if (!order) return res.status(404).json({ message: "Order not found" });
-  res.json(order);
+  const result = updateAdminOrder(req.params.id, req.body, "admin");
+  if (result.error) {
+    return res.status(result.error === "Order not found" ? 404 : 400).json({ message: result.error });
+  }
+  res.json(result.order);
 });
 
 app.post("/api/orders/track", (req, res) => {
