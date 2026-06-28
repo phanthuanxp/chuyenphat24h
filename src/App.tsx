@@ -8,6 +8,7 @@ import {
   ChevronRight,
   ClipboardList,
   Clock3,
+  Download,
   ExternalLink,
   FileSearch,
   ImagePlus,
@@ -930,7 +931,7 @@ function AdminPage() {
 
         <div className="min-w-0">
           {activeModule === "dashboard" && <AdminDashboard orders={orders} />}
-          {activeModule === "orders" && <AdminOrders orders={orders} selectedOrderId={selectedOrderId} setSelectedOrderId={setSelectedOrderId} selectedOrder={selectedOrder} onApprove={approveSelectedOrder} onAssignVehicle={assignNearestVehicleToSelectedOrder} onSave={saveSelectedOrder} />}
+          {activeModule === "orders" && <AdminOrders orders={orders} selectedOrderId={selectedOrderId} setSelectedOrderId={setSelectedOrderId} selectedOrder={selectedOrder} onApprove={approveSelectedOrder} onAssignVehicle={assignNearestVehicleToSelectedOrder} onSave={saveSelectedOrder} onUnauthorized={handleUnauthorized} />}
           {activeModule === "dispatch" && <AdminDispatch selectedOrder={selectedOrder} preview={preview} previewDispatch={previewDispatch} sendDispatch={sendDispatch} />}
           {activeModule === "zalo" && <AdminPlaceholder title="Nhóm Zalo tuyến" icon={MessageSquare} rows={["CP24H Hà Nội - Bắc Ninh", "CP24H Hà Nội - Hải Phòng", "CP24H Tây Bắc - Lào Cai", "CP24H Hàng cồng kềnh / xe máy"]} />}
           {activeModule === "routes" && <AdminPlaceholder title="Tuyến xe" icon={RouteIcon} rows={["Tuyến gần Hà Nội", "Tuyến trong ngày", "Tuyến Tây Bắc cần xác nhận", "Thanh Hóa / Nghệ An 24h"]} />}
@@ -1043,6 +1044,7 @@ function AdminOrders({
   onApprove,
   onAssignVehicle,
   onSave,
+  onUnauthorized,
 }: {
   orders: Order[];
   selectedOrderId: string;
@@ -1051,19 +1053,39 @@ function AdminOrders({
   onApprove: (finalPrice: number, note: string) => void;
   onAssignVehicle: () => void;
   onSave: (updates: AdminOrderEditPayload) => Promise<void>;
+  onUnauthorized: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [dispatchFilter, setDispatchFilter] = useState("all");
+  const [routeFilter, setRouteFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
   const statusOptions = useMemo(() => Array.from(new Set(orders.map((order) => order.status))), [orders]);
   const dispatchOptions = useMemo(() => Array.from(new Set(orders.map((order) => order.dispatchStatus))), [orders]);
   const filteredOrders = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
+    const normalizedRoute = routeFilter.trim().toLowerCase();
 
     return orders.filter((order) => {
+      const orderDate = order.createdAt?.slice(0, 10) || "";
       const matchesStatus = statusFilter === "all" || order.status === statusFilter;
       const matchesDispatch = dispatchFilter === "all" || order.dispatchStatus === dispatchFilter;
+      const matchesDateFrom = !dateFrom || orderDate >= dateFrom;
+      const matchesDateTo = !dateTo || orderDate <= dateTo;
+      const routeHaystack = [
+        order.routeName,
+        order.pickupProvince,
+        order.deliveryProvince,
+        order.pickupAddress,
+        order.deliveryAddress,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
       const haystack = [
         order.orderCode,
         order.routeName,
@@ -1079,19 +1101,59 @@ function AdminOrders({
         .join(" ")
         .toLowerCase();
 
-      return matchesStatus && matchesDispatch && (!normalizedQuery || haystack.includes(normalizedQuery));
+      return (
+        matchesStatus &&
+        matchesDispatch &&
+        matchesDateFrom &&
+        matchesDateTo &&
+        (!normalizedRoute || routeHaystack.includes(normalizedRoute)) &&
+        (!normalizedQuery || haystack.includes(normalizedQuery))
+      );
     });
-  }, [dispatchFilter, orders, query, statusFilter]);
+  }, [dateFrom, dateTo, dispatchFilter, orders, query, routeFilter, statusFilter]);
+
+  const approvedRevenue = filteredOrders.reduce((sum, order) => sum + (order.finalPrice || 0), 0);
+  const quotedRevenue = filteredOrders.reduce((sum, order) => sum + (order.quotedPrice || 0), 0);
 
   const opsStats = [
-    { label: "Tong don", value: orders.length },
-    { label: "Cho xac nhan", value: orders.filter((order) => order.status === "PENDING_CONFIRMATION").length },
-    { label: "Can bao gia", value: orders.filter((order) => order.manualQuoteRequired).length },
-    {
-      label: "Can dieu phoi",
-      value: orders.filter((order) => ["NOT_DISPATCHED", "READY_TO_DISPATCH"].includes(order.dispatchStatus)).length,
-    },
+    { label: "Don dang loc", value: filteredOrders.length },
+    { label: "Da duyet", value: `${approvedRevenue.toLocaleString("vi-VN")}d` },
+    { label: "Gia de xuat", value: `${quotedRevenue.toLocaleString("vi-VN")}d` },
+    { label: "Hoan tat", value: filteredOrders.filter((order) => order.status === "DELIVERED").length },
   ];
+
+  async function exportCsv() {
+    setExporting(true);
+    setExportError("");
+    try {
+      const params = new URLSearchParams();
+      if (query.trim()) params.set("q", query.trim());
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (dispatchFilter !== "all") params.set("dispatch", dispatchFilter);
+      if (routeFilter.trim()) params.set("route", routeFilter.trim());
+      if (dateFrom) params.set("dateFrom", dateFrom);
+      if (dateTo) params.set("dateTo", dateTo);
+      const response = await fetch(`/api/admin/orders/export.csv?${params.toString()}`);
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      if (!response.ok) throw new Error("Khong export duoc file CSV.");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `chuyenphat24h-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Khong export duoc file CSV.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_420px]">
@@ -1104,13 +1166,22 @@ function AdminOrders({
             <p className="text-xs font-semibold text-slate-500">
               Dang hien thi {filteredOrders.length}/{orders.length} don trong he thong.
             </p>
-            <div className="grid gap-2 sm:grid-cols-3 lg:w-[620px]">
+            <div className="grid gap-2 sm:grid-cols-2 lg:w-[760px] xl:grid-cols-3">
               <label>
                 <FieldLabel>Tim nhanh</FieldLabel>
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Ma don, so dien thoai, tuyen..."
+                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold"
+                />
+              </label>
+              <label>
+                <FieldLabel>Tuyen / tinh</FieldLabel>
+                <input
+                  value={routeFilter}
+                  onChange={(event) => setRouteFilter(event.target.value)}
+                  placeholder="Ha Noi, Bac Ninh..."
                   className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold"
                 />
               </label>
@@ -1130,6 +1201,14 @@ function AdminOrders({
                 </select>
               </label>
               <label>
+                <FieldLabel>Tu ngay</FieldLabel>
+                <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+              </label>
+              <label>
+                <FieldLabel>Den ngay</FieldLabel>
+                <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+              </label>
+              <label>
                 <FieldLabel>Dieu phoi</FieldLabel>
                 <select
                   value={dispatchFilter}
@@ -1144,8 +1223,18 @@ function AdminOrders({
                   ))}
                 </select>
               </label>
+              <button
+                type="button"
+                onClick={exportCsv}
+                disabled={exporting}
+                className="mt-5 flex items-center justify-center gap-2 rounded bg-slate-950 px-3 py-2 text-sm font-black text-white disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" />
+                {exporting ? "Dang xuat..." : "Export CSV"}
+              </button>
             </div>
           </div>
+          {exportError && <div className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{exportError}</div>}
           <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {opsStats.map((stat) => (
               <div key={stat.label} className="rounded border border-slate-200 bg-white px-3 py-2">

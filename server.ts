@@ -19,6 +19,7 @@ import { mockPricingRules } from "./src/data/mockPricing";
 import { mockPartners } from "./src/data/mockPartners";
 import { seoPages } from "./src/lib/seo/seoPages";
 import { initializePersistentStore, isDatabaseEnabled } from "./src/lib/storage/persistentStore";
+import type { Order } from "./src/lib/types";
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -40,6 +41,108 @@ const editableOrderTextFields = [
 const editableOrderNumberFields = ["packageCount", "weight", "quotedPrice", "finalPrice"] as const;
 
 app.use(express.json({ limit: "10mb" }));
+
+function normalizeText(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function firstQueryValue(value: unknown) {
+  return Array.isArray(value) ? String(value[0] || "") : String(value || "");
+}
+
+function filterOrders(orders: Order[], query: Request["query"]) {
+  const keyword = normalizeText(firstQueryValue(query.q || query.query));
+  const status = firstQueryValue(query.status);
+  const dispatch = firstQueryValue(query.dispatch);
+  const route = normalizeText(firstQueryValue(query.route));
+  const phone = normalizeText(firstQueryValue(query.phone));
+  const dateFrom = firstQueryValue(query.dateFrom);
+  const dateTo = firstQueryValue(query.dateTo);
+
+  return orders.filter((order) => {
+    const orderDate = order.createdAt?.slice(0, 10) || "";
+    const routeHaystack = [
+      order.routeName,
+      order.pickupProvince,
+      order.deliveryProvince,
+      order.pickupAddress,
+      order.deliveryAddress,
+    ].map(normalizeText).join(" ");
+    const phoneHaystack = [order.senderPhone, order.receiverPhone].map(normalizeText).join(" ");
+    const keywordHaystack = [
+      order.orderCode,
+      order.senderName,
+      order.senderPhone,
+      order.receiverName,
+      order.receiverPhone,
+      order.routeName,
+      order.pickupAddress,
+      order.deliveryAddress,
+      order.itemDescription,
+      order.assignedDriverName,
+      order.assignedDriverPhone,
+      order.internalNotes,
+    ].map(normalizeText).join(" ");
+
+    return (
+      (!keyword || keywordHaystack.includes(keyword)) &&
+      (!status || status === "all" || order.status === status) &&
+      (!dispatch || dispatch === "all" || order.dispatchStatus === dispatch) &&
+      (!route || routeHaystack.includes(route)) &&
+      (!phone || phoneHaystack.includes(phone)) &&
+      (!dateFrom || orderDate >= dateFrom) &&
+      (!dateTo || orderDate <= dateTo)
+    );
+  });
+}
+
+function csvCell(value: unknown) {
+  const text = String(value ?? "").replace(/\r?\n/g, " ");
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function ordersToCsv(orders: Order[]) {
+  const headers = [
+    "Ma don",
+    "Ngay tao",
+    "Khach gui",
+    "SDT gui",
+    "Nguoi nhan",
+    "SDT nhan",
+    "Tuyen",
+    "Tinh di",
+    "Tinh den",
+    "Loai hang",
+    "Trang thai",
+    "Dieu phoi",
+    "Gia de xuat",
+    "Gia da duyet",
+    "Tai xe",
+    "SDT tai xe",
+    "Ghi chu noi bo",
+  ];
+  const rows = orders.map((order) => [
+    order.orderCode,
+    order.createdAt ? new Date(order.createdAt).toLocaleString("vi-VN") : "",
+    order.senderName,
+    order.senderPhone,
+    order.receiverName,
+    order.receiverPhone,
+    order.routeName,
+    order.pickupProvince,
+    order.deliveryProvince,
+    order.itemType,
+    STATUS_LABELS[order.status] || order.status,
+    order.dispatchStatus,
+    order.quotedPrice || "",
+    order.finalPrice || "",
+    order.assignedDriverName || "",
+    order.assignedDriverPhone || "",
+    order.internalNotes || "",
+  ]);
+
+  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+}
 
 function findOrder(orderIdOrCode: string) {
   return getOrders().find((item) => item.id === orderIdOrCode || item.orderCode.toLowerCase() === orderIdOrCode.toLowerCase());
@@ -313,6 +416,14 @@ app.post("/api/orders/quick-create", asyncHandler(async (req, res) => {
 
 app.get("/api/orders", requireAdmin, (_req, res) => {
   res.json(getOrders());
+});
+
+app.get("/api/admin/orders/export.csv", requireAdmin, (req, res) => {
+  const orders = filterOrders(getOrders(), req.query);
+  const dateLabel = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="chuyenphat24h-orders-${dateLabel}.csv"`);
+  res.send(`\uFEFF${ordersToCsv(orders)}`);
 });
 
 app.get("/api/notification/logs", requireAdmin, (_req, res) => {
