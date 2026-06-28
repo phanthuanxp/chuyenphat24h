@@ -5,11 +5,12 @@
 - [ ] `.env` da tao tu `.env.example`.
 - [ ] `.env` da doi `ADMIN_PASSWORD` va `ADMIN_SESSION_SECRET`.
 - [ ] PostgreSQL database da tao va `.env` da set `DATABASE_URL`.
+- [ ] Telegram bot token/chat id da set neu muon nhan don moi realtime.
 - [ ] Thu muc `storage/` ton tai va khong bi xoa khi deploy.
 - [ ] `npm ci` thanh cong.
 - [ ] `npm run build` thanh cong.
 - [ ] `pm2 start ecosystem.config.cjs` thanh cong.
-- [ ] `curl http://127.0.0.1:3010/api/health` tra `status: ok` va `storage: postgres`.
+- [ ] `curl http://127.0.0.1:3010/api/health` tra `status: ok`, `storage: postgres` va Telegram `live` neu da cau hinh.
 - [ ] DNS domain tro ve IP VPS.
 - [ ] Nginx config da copy va `nginx -t` pass.
 - [ ] SSL Let's Encrypt da cai.

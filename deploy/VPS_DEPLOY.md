@@ -65,6 +65,12 @@ ADMIN_SESSION_SECRET=chuoi-random-that-dai
 CP24H_STORAGE_DIR=storage
 DATABASE_URL=postgresql://cp24h_user:doi-mat-khau-db-nay@127.0.0.1:5432/chuyenphat24h
 DATABASE_SSL=false
+PUBLIC_APP_URL=https://chuyenphat24h.com
+TELEGRAM_NOTIFY_MODE=auto
+TELEGRAM_SEND_TIMEOUT_MS=5000
+TELEGRAM_BOT_TOKEN=token-bot-telegram
+TELEGRAM_ADMIN_CHAT_ID=chat-id-admin-hoac-group
+TELEGRAM_WEBHOOK_SECRET=chuoi-bi-mat-telegram-webhook
 ```
 
 Khong dua `.env` len git.
@@ -102,7 +108,7 @@ pm2 logs chuyenphat24h
 curl http://127.0.0.1:3010/api/health
 ```
 
-Healthcheck dung tren production se co `"storage":"postgres"`. Neu hien `"storage":"json"` nghia la VPS chua set `DATABASE_URL`.
+Healthcheck dung tren production se co `"storage":"postgres"` va `"notifications":{"telegram":"live"}` khi Telegram da cau hinh dung. Neu hien `"storage":"json"` nghia la VPS chua set `DATABASE_URL`; neu Telegram hien `"mock"` nghia la chua set token/chat id hoac dang dat `TELEGRAM_NOTIFY_MODE=mock`.
 
 ## 6. Cau hinh Nginx
 

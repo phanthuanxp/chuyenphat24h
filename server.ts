@@ -12,7 +12,7 @@ import { parseDriverCommand } from "./src/lib/zalo/botCommandParser";
 import { getZaloGroups } from "./src/lib/zalo/zaloGroupService";
 import { getPartnerApplications, createPartnerApplication, hydratePartnerStorage } from "./src/lib/partners/driverPartnerService";
 import { createDriverCandidateFromPartner, findNearestVehicleForOrder } from "./src/lib/partners/nearestVehicleService";
-import { getNotificationLogs, hydrateNotificationStorage, logTelegramCommand, mockSendCustomerZaloOrderApproved, mockSendCustomerZaloVehicleAssigned } from "./src/lib/notification/notificationService";
+import { getNotificationLogs, getNotificationRuntimeStatus, hydrateNotificationStorage, logTelegramCommand, mockSendCustomerZaloOrderApproved, mockSendCustomerZaloVehicleAssigned } from "./src/lib/notification/notificationService";
 import { DispatchStatus, OrderStatus, STATUS_LABELS, Visibility } from "./src/lib/constants/enums";
 import { mockRoutes } from "./src/data/mockRoutes";
 import { mockPricingRules } from "./src/data/mockPricing";
@@ -364,6 +364,7 @@ app.get("/api/health", (_req, res) => {
     app: "Chuyen Phat 24H",
     stack: "Vite + React + Express",
     storage: isDatabaseEnabled() ? "postgres" : "json",
+    notifications: getNotificationRuntimeStatus(),
     time: new Date().toISOString(),
   });
 });

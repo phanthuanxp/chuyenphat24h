@@ -26,6 +26,50 @@ function createNotificationLog(payload: Omit<NotificationLog, "id" | "createdAt"
   return log;
 }
 
+function isTelegramLiveEnabled() {
+  const mode = process.env.TELEGRAM_NOTIFY_MODE || "auto";
+  if (mode === "mock") return false;
+  if (mode === "live") return Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_ADMIN_CHAT_ID);
+  return Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_ADMIN_CHAT_ID);
+}
+
+function getAdminUrl(path = "/admincp") {
+  const baseUrl = process.env.PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "";
+  return baseUrl ? `${baseUrl.replace(/\/$/, "")}${path}` : path;
+}
+
+async function sendTelegramAdminMessage(message: string) {
+  if (!isTelegramLiveEnabled()) {
+    return { ok: true, status: "MOCK_SENT" as NotificationLog["status"] };
+  }
+
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(process.env.TELEGRAM_SEND_TIMEOUT_MS || 5000));
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        disable_web_page_preview: true,
+      }),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { ok: false, status: "FAILED" as NotificationLog["status"], error: errorText || response.statusText };
+    }
+    return { ok: true, status: "SENT" as NotificationLog["status"] };
+  } catch (error) {
+    return { ok: false, status: "FAILED" as NotificationLog["status"], error: error instanceof Error ? error.message : "Telegram send failed" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function formatMoney(value?: number) {
   return value ? `${value.toLocaleString("vi-VN")}d` : "cho admin quyet dinh";
 }
@@ -34,7 +78,14 @@ export function getNotificationLogs() {
   return notificationLogs;
 }
 
-export function notifyTelegramNewOrder(order: Order) {
+export function getNotificationRuntimeStatus() {
+  return {
+    telegram: isTelegramLiveEnabled() ? "live" : "mock",
+    zaloCustomer: process.env.ZALO_CUSTOMER_NOTIFY_MODE === "live" ? "live" : "mock",
+  };
+}
+
+export async function notifyTelegramNewOrder(order: Order) {
   const message = [
     `DON MOI ${order.orderCode}`,
     `${order.pickupProvince} -> ${order.deliveryProvince}`,
@@ -42,8 +93,10 @@ export function notifyTelegramNewOrder(order: Order) {
     `Anh san pham: ${order.itemImages?.length || 0}`,
     `Gia de xuat: ${formatMoney(order.quotedPrice)}`,
     `Khach/Zalo: ${order.senderPhone}`,
+    `AdminCP: ${getAdminUrl()}`,
     `Lenh: DUYET ${order.orderCode} <gia_cuoi> | GIA ${order.orderCode} <gia_cuoi> | TIMXE ${order.orderCode}`,
   ].join("\n");
+  const result = await sendTelegramAdminMessage(message);
 
   return createNotificationLog({
     channel: "TELEGRAM_ADMIN",
@@ -51,7 +104,8 @@ export function notifyTelegramNewOrder(order: Order) {
     orderId: order.id,
     orderCode: order.orderCode,
     recipient: process.env.TELEGRAM_ADMIN_CHAT_ID || "mock-admin-chat",
-    message,
+    message: result.error ? `${message}\n\nTelegram error: ${result.error}` : message,
+    status: result.status,
   });
 }
 
