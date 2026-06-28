@@ -8,7 +8,7 @@
 - [ ] `npm ci` thanh cong.
 - [ ] `npm run build` thanh cong.
 - [ ] `pm2 start ecosystem.config.cjs` thanh cong.
-- [ ] `curl http://127.0.0.1:3000/api/health` tra `status: ok`.
+- [ ] `curl http://127.0.0.1:3010/api/health` tra `status: ok`.
 - [ ] DNS domain tro ve IP VPS.
 - [ ] Nginx config da copy va `nginx -t` pass.
 - [ ] SSL Let's Encrypt da cai.

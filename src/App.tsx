@@ -1009,14 +1009,111 @@ function AdminOrders({
   onApprove: (finalPrice: number, note: string) => void;
   onAssignVehicle: () => void;
 }) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [dispatchFilter, setDispatchFilter] = useState("all");
+
+  const statusOptions = useMemo(() => Array.from(new Set(orders.map((order) => order.status))), [orders]);
+  const dispatchOptions = useMemo(() => Array.from(new Set(orders.map((order) => order.dispatchStatus))), [orders]);
+  const filteredOrders = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    return orders.filter((order) => {
+      const matchesStatus = statusFilter === "all" || order.status === statusFilter;
+      const matchesDispatch = dispatchFilter === "all" || order.dispatchStatus === dispatchFilter;
+      const haystack = [
+        order.orderCode,
+        order.routeName,
+        order.senderName,
+        order.senderPhone,
+        order.receiverName,
+        order.receiverPhone,
+        order.pickupAddress,
+        order.deliveryAddress,
+        order.itemDescription,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return matchesStatus && matchesDispatch && (!normalizedQuery || haystack.includes(normalizedQuery));
+    });
+  }, [dispatchFilter, orders, query, statusFilter]);
+
+  const opsStats = [
+    { label: "Tong don", value: orders.length },
+    { label: "Cho xac nhan", value: orders.filter((order) => order.status === "PENDING_CONFIRMATION").length },
+    { label: "Can bao gia", value: orders.filter((order) => order.manualQuoteRequired).length },
+    {
+      label: "Can dieu phoi",
+      value: orders.filter((order) => ["NOT_DISPATCHED", "READY_TO_DISPATCH"].includes(order.dispatchStatus)).length,
+    },
+  ];
+
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_420px]">
       <div className="overflow-hidden rounded border border-slate-200 bg-white">
         <div className="border-b border-slate-200 p-4">
           <h2 className="font-black">Danh sách đơn hàng</h2>
         </div>
+        <div className="border-b border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <p className="text-xs font-semibold text-slate-500">
+              Dang hien thi {filteredOrders.length}/{orders.length} don trong he thong.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-3 lg:w-[620px]">
+              <label>
+                <FieldLabel>Tim nhanh</FieldLabel>
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Ma don, so dien thoai, tuyen..."
+                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold"
+                />
+              </label>
+              <label>
+                <FieldLabel>Trang thai</FieldLabel>
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold"
+                >
+                  <option value="all">Tat ca</option>
+                  {statusOptions.map((status) => (
+                    <option key={status} value={status}>
+                      {STATUS_LABELS[status] || status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <FieldLabel>Dieu phoi</FieldLabel>
+                <select
+                  value={dispatchFilter}
+                  onChange={(event) => setDispatchFilter(event.target.value)}
+                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold"
+                >
+                  <option value="all">Tat ca</option>
+                  {dispatchOptions.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {opsStats.map((stat) => (
+              <div key={stat.label} className="rounded border border-slate-200 bg-white px-3 py-2">
+                <div className="text-lg font-black text-slate-950">{stat.value}</div>
+                <div className="text-xs font-bold text-slate-500">{stat.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left text-sm">
+          <table className="w-full min-w-[920px] text-left text-sm">
             <thead className="bg-slate-950 text-xs uppercase tracking-wide text-white">
               <tr>
                 <th className="px-4 py-3">Mã đơn</th>
@@ -1027,10 +1124,16 @@ function AdminOrders({
               </tr>
             </thead>
             <tbody>
-              {orders.map((order) => (
+              {filteredOrders.map((order) => (
                 <tr key={order.id} onClick={() => setSelectedOrderId(order.id)} className={`cursor-pointer border-t border-slate-100 ${selectedOrderId === order.id ? "bg-red-50" : "hover:bg-slate-50"}`}>
-                  <td className="px-4 py-3 font-black">{order.orderCode}</td>
-                  <td className="px-4 py-3 font-semibold">{order.routeName}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-black">{order.orderCode}</div>
+                    <div className="text-xs font-semibold text-slate-500">{order.senderPhone || order.receiverPhone}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-semibold">{order.routeName}</div>
+                    <div className="text-xs font-semibold text-slate-500">{order.pickupProvince} - {order.deliveryProvince}</div>
+                  </td>
                   <td className="px-4 py-3">{ITEM_TYPE_LABELS[order.itemType]}</td>
                   <td className="px-4 py-3"><StatusBadge status={STATUS_LABELS[order.status]} /></td>
                   <td className="px-4 py-3 font-bold">
@@ -1038,6 +1141,13 @@ function AdminOrders({
                   </td>
                 </tr>
               ))}
+              {!filteredOrders.length && (
+                <tr>
+                  <td colSpan={5} className="border-t border-slate-100 px-4 py-10 text-center text-sm font-semibold text-slate-500">
+                    Khong co don phu hop voi bo loc hien tai.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -1085,6 +1195,24 @@ function OrderDetail({
         <Info label="Xe nhan don" value={order.assignedDriverName ? `${order.assignedDriverName} - ${order.assignedDriverPhone} - ${order.assignedVehicleType} ${order.assignedVehiclePlate || ""}` : "Chua gan xe"} />
         <Info label="Ghi chú nội bộ" value={order.internalNotes || "Chưa có"} />
       </div>
+      {Boolean(order.timeline?.length) && (
+        <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4">
+          <h3 className="text-sm font-black">Lich su xu ly gan nhat</h3>
+          <div className="mt-3 space-y-3">
+            {order.timeline.slice(-5).reverse().map((event) => (
+              <div key={event.id} className="border-l-2 border-red-500 pl-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-black text-slate-900">{event.title}</p>
+                  <span className="text-[11px] font-bold text-slate-500">
+                    {new Date(event.createdAt).toLocaleString("vi-VN")}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs font-semibold leading-5 text-slate-600">{event.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {Boolean(order.itemImages?.length) && (
         <div className="mt-4">
           <FieldLabel>Hinh anh san pham</FieldLabel>

@@ -45,7 +45,7 @@ Gia tri toi thieu:
 
 ```bash
 NODE_ENV=production
-PORT=3000
+PORT=3010
 MAPS_PROVIDER=mock
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=doi-mat-khau-nay
@@ -79,7 +79,7 @@ Kiem tra:
 ```bash
 pm2 status
 pm2 logs chuyenphat24h
-curl http://127.0.0.1:3000/api/health
+curl http://127.0.0.1:3010/api/health
 ```
 
 ## 6. Cau hinh Nginx

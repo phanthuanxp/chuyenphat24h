@@ -21,7 +21,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Mac dinh app chay tai `http://localhost:3000`.
+Mac dinh app chay tai `http://localhost:3000` neu khong set `PORT`. VPS production dang dung `PORT=3010`.
 
 ## Build va chay production tren VPS
 
@@ -51,7 +51,7 @@ Huong dan day du nam trong `deploy/VPS_DEPLOY.md`.
 
 Quan trong nhat trong MVP:
 
-- `PORT=3000`
+- `PORT=3010` tren VPS production
 - `MAPS_PROVIDER=mock`
 - `MAPS_API_BASE_URL=`
 - `MAPS_API_KEY=`

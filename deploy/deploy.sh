@@ -32,6 +32,6 @@ fi
 pm2 save
 
 echo "[deploy] healthcheck"
-curl --fail --silent --show-error "http://127.0.0.1:${PORT:-3000}/api/health"
+curl --fail --silent --show-error "http://127.0.0.1:${PORT:-3010}/api/health"
 echo
 echo "[deploy] done"
