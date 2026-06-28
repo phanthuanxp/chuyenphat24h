@@ -173,7 +173,7 @@ export async function createQuickOrderFromHomeForm(payload: QuickOrderPayload) {
     order.driverCandidates = [createDriverCandidateFromPartner(nearestVehicle)];
   }
   const createdOrder = createOrder(order);
-  notifyTelegramNewOrder(createdOrder);
+  await notifyTelegramNewOrder(createdOrder);
   notifyVehicleSearchStarted(createdOrder);
   return createdOrder;
 }

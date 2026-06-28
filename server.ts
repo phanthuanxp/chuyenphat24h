@@ -1,25 +1,25 @@
-import dotenv from "dotenv";
+import "dotenv/config";
 import express, { Request, Response } from "express";
 import crypto from "node:crypto";
 import path from "node:path";
 import { createServer as createViteServer } from "vite";
 import { mapsService } from "./src/lib/maps/mapsService";
 import { classifyQuickOrder, createQuickOrderFromHomeForm } from "./src/lib/orders/quickOrderService";
-import { addTimelineEvent, assignDriverToOrder, getOrders, updateOrder } from "./src/lib/orders/orderService";
+import { addTimelineEvent, assignDriverToOrder, getOrders, hydrateOrderStorage, updateOrder } from "./src/lib/orders/orderService";
 import { getPublicTrackingInfo } from "./src/lib/tracking/trackingService";
-import { addDispatchPreviewLog, getDispatchLogs, sendOrderToZaloGroups } from "./src/lib/dispatch/dispatchService";
+import { addDispatchPreviewLog, getDispatchLogs, hydrateDispatchStorage, sendOrderToZaloGroups } from "./src/lib/dispatch/dispatchService";
 import { parseDriverCommand } from "./src/lib/zalo/botCommandParser";
 import { getZaloGroups } from "./src/lib/zalo/zaloGroupService";
-import { getPartnerApplications, createPartnerApplication } from "./src/lib/partners/driverPartnerService";
+import { getPartnerApplications, createPartnerApplication, hydratePartnerStorage } from "./src/lib/partners/driverPartnerService";
 import { createDriverCandidateFromPartner, findNearestVehicleForOrder } from "./src/lib/partners/nearestVehicleService";
-import { getNotificationLogs, logTelegramCommand, mockSendCustomerZaloOrderApproved, mockSendCustomerZaloVehicleAssigned } from "./src/lib/notification/notificationService";
-import { DispatchStatus, OrderStatus, Visibility } from "./src/lib/constants/enums";
+import { getNotificationLogs, getNotificationRuntimeStatus, hydrateNotificationStorage, logTelegramCommand, mockSendCustomerZaloOrderApproved, mockSendCustomerZaloVehicleAssigned } from "./src/lib/notification/notificationService";
+import { DispatchStatus, OrderStatus, STATUS_LABELS, Visibility } from "./src/lib/constants/enums";
 import { mockRoutes } from "./src/data/mockRoutes";
 import { mockPricingRules } from "./src/data/mockPricing";
 import { mockPartners } from "./src/data/mockPartners";
 import { seoPages } from "./src/lib/seo/seoPages";
-
-dotenv.config();
+import { initializePersistentStore, isDatabaseEnabled } from "./src/lib/storage/persistentStore";
+import type { Order } from "./src/lib/types";
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -27,8 +27,122 @@ const adminUsername = process.env.ADMIN_USERNAME || "admin";
 const adminPassword = process.env.ADMIN_PASSWORD || "change-me-now";
 const sessionSecret = process.env.ADMIN_SESSION_SECRET || "cp24h-dev-session-secret";
 const sessionCookieName = "cp24h_admin_session";
+const validOrderStatuses = new Set(Object.values(OrderStatus));
+const editableOrderTextFields = [
+  "senderName",
+  "senderPhone",
+  "pickupAddress",
+  "receiverName",
+  "receiverPhone",
+  "deliveryAddress",
+  "itemDescription",
+  "customerTrackingNote",
+] as const;
+const editableOrderNumberFields = ["packageCount", "weight", "quotedPrice", "finalPrice"] as const;
 
 app.use(express.json({ limit: "10mb" }));
+
+function normalizeText(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function firstQueryValue(value: unknown) {
+  return Array.isArray(value) ? String(value[0] || "") : String(value || "");
+}
+
+function filterOrders(orders: Order[], query: Request["query"]) {
+  const keyword = normalizeText(firstQueryValue(query.q || query.query));
+  const status = firstQueryValue(query.status);
+  const dispatch = firstQueryValue(query.dispatch);
+  const route = normalizeText(firstQueryValue(query.route));
+  const phone = normalizeText(firstQueryValue(query.phone));
+  const dateFrom = firstQueryValue(query.dateFrom);
+  const dateTo = firstQueryValue(query.dateTo);
+
+  return orders.filter((order) => {
+    const orderDate = order.createdAt?.slice(0, 10) || "";
+    const routeHaystack = [
+      order.routeName,
+      order.pickupProvince,
+      order.deliveryProvince,
+      order.pickupAddress,
+      order.deliveryAddress,
+    ].map(normalizeText).join(" ");
+    const phoneHaystack = [order.senderPhone, order.receiverPhone].map(normalizeText).join(" ");
+    const keywordHaystack = [
+      order.orderCode,
+      order.senderName,
+      order.senderPhone,
+      order.receiverName,
+      order.receiverPhone,
+      order.routeName,
+      order.pickupAddress,
+      order.deliveryAddress,
+      order.itemDescription,
+      order.assignedDriverName,
+      order.assignedDriverPhone,
+      order.internalNotes,
+    ].map(normalizeText).join(" ");
+
+    return (
+      (!keyword || keywordHaystack.includes(keyword)) &&
+      (!status || status === "all" || order.status === status) &&
+      (!dispatch || dispatch === "all" || order.dispatchStatus === dispatch) &&
+      (!route || routeHaystack.includes(route)) &&
+      (!phone || phoneHaystack.includes(phone)) &&
+      (!dateFrom || orderDate >= dateFrom) &&
+      (!dateTo || orderDate <= dateTo)
+    );
+  });
+}
+
+function csvCell(value: unknown) {
+  const text = String(value ?? "").replace(/\r?\n/g, " ");
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function ordersToCsv(orders: Order[]) {
+  const headers = [
+    "Ma don",
+    "Ngay tao",
+    "Khach gui",
+    "SDT gui",
+    "Nguoi nhan",
+    "SDT nhan",
+    "Tuyen",
+    "Tinh di",
+    "Tinh den",
+    "Loai hang",
+    "Trang thai",
+    "Dieu phoi",
+    "Gia de xuat",
+    "Gia da duyet",
+    "Tai xe",
+    "SDT tai xe",
+    "Ghi chu noi bo",
+  ];
+  const rows = orders.map((order) => [
+    order.orderCode,
+    order.createdAt ? new Date(order.createdAt).toLocaleString("vi-VN") : "",
+    order.senderName,
+    order.senderPhone,
+    order.receiverName,
+    order.receiverPhone,
+    order.routeName,
+    order.pickupProvince,
+    order.deliveryProvince,
+    order.itemType,
+    STATUS_LABELS[order.status] || order.status,
+    order.dispatchStatus,
+    order.quotedPrice || "",
+    order.finalPrice || "",
+    order.assignedDriverName || "",
+    order.assignedDriverPhone || "",
+    order.internalNotes || "",
+  ]);
+
+  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+}
 
 function findOrder(orderIdOrCode: string) {
   return getOrders().find((item) => item.id === orderIdOrCode || item.orderCode.toLowerCase() === orderIdOrCode.toLowerCase());
@@ -85,6 +199,94 @@ function assignNearestVehicle(orderIdOrCode: string, actor = "admin") {
     return { order: findOrder(order.id), vehicle };
   }
   return { order: null, vehicle };
+}
+
+function updateAdminOrder(orderIdOrCode: string, payload: Record<string, unknown>, actor = "admin") {
+  const order = findOrder(orderIdOrCode);
+  if (!order) return { order: null, error: "Order not found" };
+
+  const updates: Record<string, unknown> = {};
+  const changedFields: string[] = [];
+
+  for (const field of editableOrderTextFields) {
+    if (!(field in payload)) continue;
+    const nextValue = String(payload[field] ?? "").trim();
+    if (nextValue !== String(order[field] ?? "")) {
+      updates[field] = nextValue || undefined;
+      changedFields.push(field);
+    }
+  }
+
+  for (const field of editableOrderNumberFields) {
+    if (!(field in payload)) continue;
+    const rawValue = payload[field];
+    const nextValue = rawValue === "" || rawValue === null || rawValue === undefined ? undefined : Number(rawValue);
+    if (nextValue !== undefined && (!Number.isFinite(nextValue) || nextValue < 0)) {
+      return { order: null, error: `${field} must be a valid number` };
+    }
+    if (field === "packageCount" && nextValue !== undefined && nextValue < 1) {
+      return { order: null, error: "packageCount must be at least 1" };
+    }
+    if (nextValue !== order[field]) {
+      updates[field] = nextValue;
+      changedFields.push(field);
+    }
+  }
+
+  const nextStatus = typeof payload.status === "string" ? payload.status : undefined;
+  if (nextStatus) {
+    if (!validOrderStatuses.has(nextStatus as OrderStatus)) {
+      return { order: null, error: "Invalid order status" };
+    }
+    if (nextStatus !== order.status) {
+      updates.status = nextStatus;
+      changedFields.push("status");
+    }
+  }
+
+  const operationNote = String(payload.operationNote || "").trim();
+  if (operationNote) {
+    const noteLine = `[${new Date().toLocaleString("vi-VN")}] ${actor}: ${operationNote}`;
+    updates.internalNotes = [order.internalNotes, noteLine].filter(Boolean).join("\n");
+    changedFields.push("internalNotes");
+  }
+
+  if (!changedFields.length) {
+    return { order, error: null };
+  }
+
+  const updated = updateOrder(order.id, updates);
+  if (!updated) return { order: null, error: "Order not found" };
+
+  if (updates.status) {
+    addTimelineEvent(order.id, {
+      eventType: "ORDER_STATUS_UPDATED",
+      title: "Cap nhat trang thai don",
+      description: `Trang thai moi: ${STATUS_LABELS[updates.status as OrderStatus] || updates.status}.`,
+      visibility: Visibility.PUBLIC_CUSTOMER,
+      createdBy: actor,
+    });
+  }
+
+  if (operationNote) {
+    addTimelineEvent(order.id, {
+      eventType: "INTERNAL_NOTE_ADDED",
+      title: "Them ghi chu noi bo",
+      description: operationNote,
+      visibility: Visibility.ADMIN_ONLY,
+      createdBy: actor,
+    });
+  } else if (changedFields.some((field) => field !== "status")) {
+    addTimelineEvent(order.id, {
+      eventType: "ORDER_ADMIN_EDITED",
+      title: "Cap nhat thong tin don",
+      description: `Da cap nhat: ${changedFields.filter((field) => field !== "status").join(", ")}.`,
+      visibility: Visibility.ADMIN_ONLY,
+      createdBy: actor,
+    });
+  }
+
+  return { order: findOrder(order.id), error: null };
 }
 
 function parseCookies(cookieHeader = "") {
@@ -161,6 +363,8 @@ app.get("/api/health", (_req, res) => {
     status: "ok",
     app: "Chuyen Phat 24H",
     stack: "Vite + React + Express",
+    storage: isDatabaseEnabled() ? "postgres" : "json",
+    notifications: getNotificationRuntimeStatus(),
     time: new Date().toISOString(),
   });
 });
@@ -215,6 +419,14 @@ app.get("/api/orders", requireAdmin, (_req, res) => {
   res.json(getOrders());
 });
 
+app.get("/api/admin/orders/export.csv", requireAdmin, (req, res) => {
+  const orders = filterOrders(getOrders(), req.query);
+  const dateLabel = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="chuyenphat24h-orders-${dateLabel}.csv"`);
+  res.send(`\uFEFF${ordersToCsv(orders)}`);
+});
+
 app.get("/api/notification/logs", requireAdmin, (_req, res) => {
   res.json(getNotificationLogs());
 });
@@ -233,6 +445,14 @@ app.post("/api/admin/orders/:id/assign-nearest-vehicle", requireAdmin, (req, res
   const result = assignNearestVehicle(req.params.id, "admin");
   if (!result.order) return res.status(404).json({ message: "Order not found" });
   res.json(result);
+});
+
+app.patch("/api/admin/orders/:id/edit", requireAdmin, (req, res) => {
+  const result = updateAdminOrder(req.params.id, req.body, "admin");
+  if (result.error) {
+    return res.status(result.error === "Order not found" ? 404 : 400).json({ message: result.error });
+  }
+  res.json(result.order);
 });
 
 app.post("/api/telegram/webhook", (req, res) => {
@@ -301,9 +521,11 @@ app.get("/api/admin/workspace", requireAdmin, (_req, res) => {
 });
 
 app.patch("/api/orders/:id", requireAdmin, (req, res) => {
-  const order = updateOrder(req.params.id, req.body);
-  if (!order) return res.status(404).json({ message: "Order not found" });
-  res.json(order);
+  const result = updateAdminOrder(req.params.id, req.body, "admin");
+  if (result.error) {
+    return res.status(result.error === "Order not found" ? 404 : 400).json({ message: result.error });
+  }
+  res.json(result.order);
 });
 
 app.post("/api/orders/track", (req, res) => {
@@ -390,6 +612,14 @@ app.get("/api/seo-pages", (_req, res) => {
 });
 
 async function setupApp() {
+  await initializePersistentStore();
+  await Promise.all([
+    hydrateOrderStorage(),
+    hydrateDispatchStorage(),
+    hydrateNotificationStorage(),
+    hydratePartnerStorage(),
+  ]);
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

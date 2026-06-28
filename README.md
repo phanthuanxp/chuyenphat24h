@@ -6,7 +6,8 @@ Stack hien tai:
 
 - Vite + React + TypeScript cho frontend SPA.
 - Express + TypeScript cho API noi bo.
-- Mock Maps provider, mock Zalo dispatch, in-memory orders.
+- PostgreSQL production storage khi co `DATABASE_URL`, fallback JSON file khi chua cau hinh DB.
+- Mock Maps provider, mock Zalo dispatch.
 
 ## Cai dat
 
@@ -56,9 +57,13 @@ Quan trong nhat trong MVP:
 - `MAPS_API_BASE_URL=`
 - `MAPS_API_KEY=`
 - `DATABASE_URL=`
+- `DATABASE_SSL=false`
 - `TELEGRAM_BOT_TOKEN=`
 - `TELEGRAM_ADMIN_CHAT_ID=`
 - `TELEGRAM_WEBHOOK_SECRET=`
+- `TELEGRAM_NOTIFY_MODE=auto`
+- `TELEGRAM_SEND_TIMEOUT_MS=5000`
+- `PUBLIC_APP_URL=https://chuyenphat24h.com`
 - `ZALO_APP_ID=`
 - `ZALO_APP_SECRET=`
 - `ZALO_WEBHOOK_SECRET=`
@@ -74,7 +79,7 @@ Khong dua `.env` that vao git.
 
 - `src/lib/types`: domain model cho Order, Customer, ZaloRouteGroup, DriverPartner, PricingRule.
 - `src/lib/maps`: Maps adapter, mock provider, real provider placeholder, route classifier.
-- `src/lib/orders`: tao don nhanh, order service in-memory.
+- `src/lib/orders`: tao don nhanh, order service voi PostgreSQL/JSON storage.
 - `src/lib/pricing`: dinh gia va manual quote rules.
 - `src/lib/dispatch`: AI dispatch mock, preview va send mock vao group Zalo.
 - `src/lib/zalo`: group service va bot command parser.
@@ -87,26 +92,32 @@ Khong dua `.env` that vao git.
 1. Khach tao don tren website.
 2. Frontend goi API noi bo de autocomplete dia chi mock Maps.
 3. API phan tuyen, tinh khoang cach mock va tao `quotedPrice` la gia de xuat.
-4. Don duoc luu vao JSON storage, kem anh san pham va co `orderCode`.
-5. He thong tao notification log Telegram admin va bat dau goi y xe gan nhat.
+4. Don duoc luu vao PostgreSQL production neu co `DATABASE_URL`, fallback JSON storage neu chua cau hinh DB, kem anh san pham va co `orderCode`.
+5. He thong gui Telegram admin neu da cau hinh token/chat id, dong thoi tao notification log va bat dau goi y xe gan nhat.
 6. Admin duyet gia cuoi trong AdminCP hoac qua Telegram webhook mock: `DUYET CP24H-xxxx 250000`.
 7. Sau khi duyet, he thong tao log gui Zalo khach ve gia chinh thuc.
 8. Admin bam tim/giao xe gan nhat hoac Telegram `TIMXE CP24H-xxxx`; he thong gan xe va tao log gui Zalo khach.
 9. Khach tra cuu public bang ma don va so dien thoai.
 
-## Telegram/Zalo mock workflow
+## Telegram/Zalo workflow
 
 - `POST /api/telegram/webhook?secret=...` nhan lenh `DUYET`, `GIA`, `TIMXE`.
-- `GET /api/notification/logs` trong AdminCP/API tra ve log Telegram/Zalo mock.
-- Khi co token that, thay cac ham trong `src/lib/notification/notificationService.ts` bang Telegram Bot API va Zalo OA API.
+- `GET /api/notification/logs` trong AdminCP/API tra ve log Telegram/Zalo.
+- Khi set `TELEGRAM_BOT_TOKEN` va `TELEGRAM_ADMIN_CHAT_ID`, don moi se gui Telegram admin that. Neu thieu cau hinh, he thong fallback mock va van ghi log.
+- Zalo customer hien van la mock log, cho den khi co Zalo OA/API production.
 
 ## Ghi chu production
+
+Du lieu production:
+
+- Khi co `DATABASE_URL`, server tu tao bang `app_records` va luu orders, dispatch logs, notification logs, partner applications vao PostgreSQL.
+- Neu DB trong, app seed du lieu tu JSON storage hien co de chuyen doi an toan.
+- Khi chua co `DATABASE_URL`, app tiep tuc fallback ve JSON trong `CP24H_STORAGE_DIR`.
 
 Phan dang mock:
 
 - Maps API thuc.
 - Zalo OA/group integration thuc.
-- Database SQL thuc.
 - Logging/monitoring.
 
-Ban hien tai da co AdminCP login bang env va storage JSON tren VPS. Truoc khi van hanh lon can noi database SQL, provider Maps server-side, webhook Zalo neu API ho tro va giam sat loi runtime.
+Ban hien tai da co AdminCP login bang env va PostgreSQL production storage neu VPS set `DATABASE_URL`. Truoc khi van hanh lon can noi provider Maps server-side, webhook Zalo neu API ho tro va giam sat loi runtime.

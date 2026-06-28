@@ -8,6 +8,7 @@ import {
   ChevronRight,
   ClipboardList,
   Clock3,
+  Download,
   ExternalLink,
   FileSearch,
   ImagePlus,
@@ -31,12 +32,32 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { ITEM_TYPE_LABELS, ItemType, STATUS_LABELS } from "./lib/constants/enums";
+import { ITEM_TYPE_LABELS, ItemType, OrderStatus, STATUS_LABELS } from "./lib/constants/enums";
 import type { MapsAddress, Order, PublicTrackingInfo, RouteEstimate } from "./lib/types";
 import { ThemeLanding } from "./components/ThemeLanding";
 
 type View = "home" | "order" | "tracking" | "routes" | "pricing" | "policy" | "contact" | "admin" | "seo";
 type AdminModule = "dashboard" | "orders" | "dispatch" | "zalo" | "routes" | "partners" | "customers" | "pricing" | "seo" | "settings";
+type AdminOrderEditPayload = Partial<
+  Pick<
+    Order,
+    | "senderName"
+    | "senderPhone"
+    | "pickupAddress"
+    | "receiverName"
+    | "receiverPhone"
+    | "deliveryAddress"
+    | "itemDescription"
+    | "packageCount"
+    | "weight"
+    | "quotedPrice"
+    | "finalPrice"
+    | "customerTrackingNote"
+  >
+> & {
+  status?: OrderStatus;
+  operationNote?: string;
+};
 
 const hotline = "0345 07 6789";
 const heroImage =
@@ -66,6 +87,7 @@ const adminModules: Array<{ id: AdminModule; label: string; icon: React.ElementT
 ];
 
 const itemOptions = Object.values(ItemType);
+const adminOrderStatusOptions = Array.from(new Set(Object.values(OrderStatus)));
 const phoneHref = "tel:0345076789";
 
 function getInitialView(): View {
@@ -844,6 +866,26 @@ function AdminPage() {
     await loadOrders();
   }
 
+  async function saveSelectedOrder(updates: AdminOrderEditPayload) {
+    if (!selectedOrder) return;
+    const res = await fetch(`/api/admin/orders/${selectedOrder.id}/edit`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    if (res.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || "Khong luu duoc don hang.");
+    }
+    const updatedOrder = data as Order;
+    setOrders((current) => current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)));
+    setSelectedOrderId(updatedOrder.id);
+  }
+
   if (checkingSession) {
     return (
       <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
@@ -889,7 +931,7 @@ function AdminPage() {
 
         <div className="min-w-0">
           {activeModule === "dashboard" && <AdminDashboard orders={orders} />}
-          {activeModule === "orders" && <AdminOrders orders={orders} selectedOrderId={selectedOrderId} setSelectedOrderId={setSelectedOrderId} selectedOrder={selectedOrder} onApprove={approveSelectedOrder} onAssignVehicle={assignNearestVehicleToSelectedOrder} />}
+          {activeModule === "orders" && <AdminOrders orders={orders} selectedOrderId={selectedOrderId} setSelectedOrderId={setSelectedOrderId} selectedOrder={selectedOrder} onApprove={approveSelectedOrder} onAssignVehicle={assignNearestVehicleToSelectedOrder} onSave={saveSelectedOrder} onUnauthorized={handleUnauthorized} />}
           {activeModule === "dispatch" && <AdminDispatch selectedOrder={selectedOrder} preview={preview} previewDispatch={previewDispatch} sendDispatch={sendDispatch} />}
           {activeModule === "zalo" && <AdminPlaceholder title="Nhóm Zalo tuyến" icon={MessageSquare} rows={["CP24H Hà Nội - Bắc Ninh", "CP24H Hà Nội - Hải Phòng", "CP24H Tây Bắc - Lào Cai", "CP24H Hàng cồng kềnh / xe máy"]} />}
           {activeModule === "routes" && <AdminPlaceholder title="Tuyến xe" icon={RouteIcon} rows={["Tuyến gần Hà Nội", "Tuyến trong ngày", "Tuyến Tây Bắc cần xác nhận", "Thanh Hóa / Nghệ An 24h"]} />}
@@ -897,7 +939,7 @@ function AdminPage() {
           {activeModule === "customers" && <AdminPlaceholder title="Khách hàng" icon={Users} rows={["Shop online", "Khách cá nhân", "Doanh nghiệp gửi hồ sơ"]} />}
           {activeModule === "pricing" && <AdminPlaceholder title="Bảng giá" icon={WalletCards} rows={["Giấy tờ tuyến gần từ 150.000đ", "Hàng shop trong ngày từ 190.000đ", "Xe máy / hàng cồng kềnh báo giá thủ công"]} />}
           {activeModule === "seo" && <AdminPlaceholder title="Nội dung SEO" icon={FileSearch} rows={["chuyen-phat-hoa-toc-lien-tinh", "gui-giay-to-hoa-toc-di-tinh", "chuyen-phat-ha-noi-nghe-an"]} />}
-          {activeModule === "settings" && <AdminPlaceholder title="Cài đặt hệ thống" icon={Settings} rows={["MAPS_PROVIDER=mock", "ZALO dispatch mock", "DATABASE_URL chưa nối"]} />}
+          {activeModule === "settings" && <AdminPlaceholder title="Cài đặt hệ thống" icon={Settings} rows={["MAPS_PROVIDER=mock", "ZALO dispatch mock", "PostgreSQL storage qua DATABASE_URL"]} />}
         </div>
       </div>
     </section>
@@ -1001,6 +1043,8 @@ function AdminOrders({
   selectedOrder,
   onApprove,
   onAssignVehicle,
+  onSave,
+  onUnauthorized,
 }: {
   orders: Order[];
   selectedOrderId: string;
@@ -1008,19 +1052,40 @@ function AdminOrders({
   selectedOrder?: Order;
   onApprove: (finalPrice: number, note: string) => void;
   onAssignVehicle: () => void;
+  onSave: (updates: AdminOrderEditPayload) => Promise<void>;
+  onUnauthorized: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [dispatchFilter, setDispatchFilter] = useState("all");
+  const [routeFilter, setRouteFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
   const statusOptions = useMemo(() => Array.from(new Set(orders.map((order) => order.status))), [orders]);
   const dispatchOptions = useMemo(() => Array.from(new Set(orders.map((order) => order.dispatchStatus))), [orders]);
   const filteredOrders = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
+    const normalizedRoute = routeFilter.trim().toLowerCase();
 
     return orders.filter((order) => {
+      const orderDate = order.createdAt?.slice(0, 10) || "";
       const matchesStatus = statusFilter === "all" || order.status === statusFilter;
       const matchesDispatch = dispatchFilter === "all" || order.dispatchStatus === dispatchFilter;
+      const matchesDateFrom = !dateFrom || orderDate >= dateFrom;
+      const matchesDateTo = !dateTo || orderDate <= dateTo;
+      const routeHaystack = [
+        order.routeName,
+        order.pickupProvince,
+        order.deliveryProvince,
+        order.pickupAddress,
+        order.deliveryAddress,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
       const haystack = [
         order.orderCode,
         order.routeName,
@@ -1036,19 +1101,59 @@ function AdminOrders({
         .join(" ")
         .toLowerCase();
 
-      return matchesStatus && matchesDispatch && (!normalizedQuery || haystack.includes(normalizedQuery));
+      return (
+        matchesStatus &&
+        matchesDispatch &&
+        matchesDateFrom &&
+        matchesDateTo &&
+        (!normalizedRoute || routeHaystack.includes(normalizedRoute)) &&
+        (!normalizedQuery || haystack.includes(normalizedQuery))
+      );
     });
-  }, [dispatchFilter, orders, query, statusFilter]);
+  }, [dateFrom, dateTo, dispatchFilter, orders, query, routeFilter, statusFilter]);
+
+  const approvedRevenue = filteredOrders.reduce((sum, order) => sum + (order.finalPrice || 0), 0);
+  const quotedRevenue = filteredOrders.reduce((sum, order) => sum + (order.quotedPrice || 0), 0);
 
   const opsStats = [
-    { label: "Tong don", value: orders.length },
-    { label: "Cho xac nhan", value: orders.filter((order) => order.status === "PENDING_CONFIRMATION").length },
-    { label: "Can bao gia", value: orders.filter((order) => order.manualQuoteRequired).length },
-    {
-      label: "Can dieu phoi",
-      value: orders.filter((order) => ["NOT_DISPATCHED", "READY_TO_DISPATCH"].includes(order.dispatchStatus)).length,
-    },
+    { label: "Don dang loc", value: filteredOrders.length },
+    { label: "Da duyet", value: `${approvedRevenue.toLocaleString("vi-VN")}d` },
+    { label: "Gia de xuat", value: `${quotedRevenue.toLocaleString("vi-VN")}d` },
+    { label: "Hoan tat", value: filteredOrders.filter((order) => order.status === "DELIVERED").length },
   ];
+
+  async function exportCsv() {
+    setExporting(true);
+    setExportError("");
+    try {
+      const params = new URLSearchParams();
+      if (query.trim()) params.set("q", query.trim());
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (dispatchFilter !== "all") params.set("dispatch", dispatchFilter);
+      if (routeFilter.trim()) params.set("route", routeFilter.trim());
+      if (dateFrom) params.set("dateFrom", dateFrom);
+      if (dateTo) params.set("dateTo", dateTo);
+      const response = await fetch(`/api/admin/orders/export.csv?${params.toString()}`);
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      if (!response.ok) throw new Error("Khong export duoc file CSV.");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `chuyenphat24h-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Khong export duoc file CSV.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_420px]">
@@ -1061,13 +1166,22 @@ function AdminOrders({
             <p className="text-xs font-semibold text-slate-500">
               Dang hien thi {filteredOrders.length}/{orders.length} don trong he thong.
             </p>
-            <div className="grid gap-2 sm:grid-cols-3 lg:w-[620px]">
+            <div className="grid gap-2 sm:grid-cols-2 lg:w-[760px] xl:grid-cols-3">
               <label>
                 <FieldLabel>Tim nhanh</FieldLabel>
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Ma don, so dien thoai, tuyen..."
+                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold"
+                />
+              </label>
+              <label>
+                <FieldLabel>Tuyen / tinh</FieldLabel>
+                <input
+                  value={routeFilter}
+                  onChange={(event) => setRouteFilter(event.target.value)}
+                  placeholder="Ha Noi, Bac Ninh..."
                   className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold"
                 />
               </label>
@@ -1087,6 +1201,14 @@ function AdminOrders({
                 </select>
               </label>
               <label>
+                <FieldLabel>Tu ngay</FieldLabel>
+                <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+              </label>
+              <label>
+                <FieldLabel>Den ngay</FieldLabel>
+                <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+              </label>
+              <label>
                 <FieldLabel>Dieu phoi</FieldLabel>
                 <select
                   value={dispatchFilter}
@@ -1101,8 +1223,18 @@ function AdminOrders({
                   ))}
                 </select>
               </label>
+              <button
+                type="button"
+                onClick={exportCsv}
+                disabled={exporting}
+                className="mt-5 flex items-center justify-center gap-2 rounded bg-slate-950 px-3 py-2 text-sm font-black text-white disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" />
+                {exporting ? "Dang xuat..." : "Export CSV"}
+              </button>
             </div>
           </div>
+          {exportError && <div className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{exportError}</div>}
           <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {opsStats.map((stat) => (
               <div key={stat.label} className="rounded border border-slate-200 bg-white px-3 py-2">
@@ -1152,7 +1284,7 @@ function AdminOrders({
           </table>
         </div>
       </div>
-      <OrderDetail order={selectedOrder} onApprove={onApprove} onAssignVehicle={onAssignVehicle} />
+      <OrderDetail order={selectedOrder} onApprove={onApprove} onAssignVehicle={onAssignVehicle} onSave={onSave} />
     </div>
   );
 }
@@ -1161,18 +1293,78 @@ function OrderDetail({
   order,
   onApprove,
   onAssignVehicle,
+  onSave,
 }: {
   order?: Order;
   onApprove: (finalPrice: number, note: string) => void;
   onAssignVehicle: () => void;
+  onSave: (updates: AdminOrderEditPayload) => Promise<void>;
 }) {
   const [finalPrice, setFinalPrice] = useState(0);
   const [approvalNote, setApprovalNote] = useState("Duyet gia tu AdminCP");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [editMessage, setEditMessage] = useState("");
+  const [editForm, setEditForm] = useState({
+    senderName: "",
+    senderPhone: "",
+    pickupAddress: "",
+    receiverName: "",
+    receiverPhone: "",
+    deliveryAddress: "",
+    itemDescription: "",
+    packageCount: 1,
+    weight: 0,
+    quotedPrice: 0,
+    finalPrice: 0,
+    status: OrderStatus.PENDING_CONFIRMATION,
+    customerTrackingNote: "",
+    operationNote: "",
+  });
 
   useEffect(() => {
     setFinalPrice(order?.finalPrice || order?.quotedPrice || 0);
     setApprovalNote("Duyet gia tu AdminCP");
-  }, [order?.id, order?.finalPrice, order?.quotedPrice]);
+    setEditError("");
+    setEditMessage("");
+    setEditForm({
+      senderName: order?.senderName || "",
+      senderPhone: order?.senderPhone || "",
+      pickupAddress: order?.pickupAddress || "",
+      receiverName: order?.receiverName || "",
+      receiverPhone: order?.receiverPhone || "",
+      deliveryAddress: order?.deliveryAddress || "",
+      itemDescription: order?.itemDescription || "",
+      packageCount: order?.packageCount || 1,
+      weight: order?.weight || 0,
+      quotedPrice: order?.quotedPrice || 0,
+      finalPrice: order?.finalPrice || 0,
+      status: order?.status || OrderStatus.PENDING_CONFIRMATION,
+      customerTrackingNote: order?.customerTrackingNote || "",
+      operationNote: "",
+    });
+  }, [order?.id, order?.updatedAt, order?.finalPrice, order?.quotedPrice]);
+
+  async function submitOrderEdit(event: React.FormEvent) {
+    event.preventDefault();
+    setSavingEdit(true);
+    setEditError("");
+    setEditMessage("");
+    try {
+      await onSave({
+        ...editForm,
+        packageCount: Number(editForm.packageCount) || 1,
+        weight: Number(editForm.weight) || 0,
+        quotedPrice: Number(editForm.quotedPrice) || undefined,
+        finalPrice: Number(editForm.finalPrice) || undefined,
+      });
+      setEditMessage("Da luu cap nhat don hang.");
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : "Khong luu duoc don hang.");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
 
   if (!order) {
     return <div className="rounded border border-slate-200 bg-white p-5 text-sm font-semibold text-slate-500">Chọn một đơn để xem chi tiết.</div>;
@@ -1195,6 +1387,79 @@ function OrderDetail({
         <Info label="Xe nhan don" value={order.assignedDriverName ? `${order.assignedDriverName} - ${order.assignedDriverPhone} - ${order.assignedVehicleType} ${order.assignedVehiclePlate || ""}` : "Chua gan xe"} />
         <Info label="Ghi chú nội bộ" value={order.internalNotes || "Chưa có"} />
       </div>
+      <form onSubmit={submitOrderEdit} className="mt-5 rounded border border-slate-200 bg-slate-50 p-4">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="font-black">Sua don / trang thai / ghi chu</h3>
+          <StatusBadge status={STATUS_LABELS[editForm.status]} />
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label>
+            <FieldLabel>Ten khach gui</FieldLabel>
+            <input value={editForm.senderName} onChange={(event) => setEditForm((current) => ({ ...current, senderName: event.target.value }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>SDT khach gui</FieldLabel>
+            <input value={editForm.senderPhone} onChange={(event) => setEditForm((current) => ({ ...current, senderPhone: event.target.value }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>Ten nguoi nhan</FieldLabel>
+            <input value={editForm.receiverName} onChange={(event) => setEditForm((current) => ({ ...current, receiverName: event.target.value }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>SDT nguoi nhan</FieldLabel>
+            <input value={editForm.receiverPhone} onChange={(event) => setEditForm((current) => ({ ...current, receiverPhone: event.target.value }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label className="sm:col-span-2">
+            <FieldLabel>Dia chi lay hang</FieldLabel>
+            <textarea value={editForm.pickupAddress} onChange={(event) => setEditForm((current) => ({ ...current, pickupAddress: event.target.value }))} rows={2} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label className="sm:col-span-2">
+            <FieldLabel>Dia chi giao hang</FieldLabel>
+            <textarea value={editForm.deliveryAddress} onChange={(event) => setEditForm((current) => ({ ...current, deliveryAddress: event.target.value }))} rows={2} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label className="sm:col-span-2">
+            <FieldLabel>Mo ta hang</FieldLabel>
+            <textarea value={editForm.itemDescription} onChange={(event) => setEditForm((current) => ({ ...current, itemDescription: event.target.value }))} rows={2} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>So kien</FieldLabel>
+            <input type="number" min={1} value={editForm.packageCount} onChange={(event) => setEditForm((current) => ({ ...current, packageCount: Number(event.target.value) || 1 }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>Can nang kg</FieldLabel>
+            <input type="number" min={0} step={0.1} value={editForm.weight} onChange={(event) => setEditForm((current) => ({ ...current, weight: Number(event.target.value) || 0 }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>Gia de xuat</FieldLabel>
+            <input type="number" min={0} step={1000} value={editForm.quotedPrice} onChange={(event) => setEditForm((current) => ({ ...current, quotedPrice: Number(event.target.value) || 0 }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label>
+            <FieldLabel>Gia da duyet</FieldLabel>
+            <input type="number" min={0} step={1000} value={editForm.finalPrice} onChange={(event) => setEditForm((current) => ({ ...current, finalPrice: Number(event.target.value) || 0 }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label className="sm:col-span-2">
+            <FieldLabel>Trang thai don</FieldLabel>
+            <select value={editForm.status} onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value as OrderStatus }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold">
+              {adminOrderStatusOptions.map((status) => (
+                <option key={status} value={status}>{STATUS_LABELS[status]}</option>
+              ))}
+            </select>
+          </label>
+          <label className="sm:col-span-2">
+            <FieldLabel>Ghi chu cho khach tra cuu</FieldLabel>
+            <textarea value={editForm.customerTrackingNote} onChange={(event) => setEditForm((current) => ({ ...current, customerTrackingNote: event.target.value }))} rows={2} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+          <label className="sm:col-span-2">
+            <FieldLabel>Them ghi chu noi bo</FieldLabel>
+            <textarea value={editForm.operationNote} onChange={(event) => setEditForm((current) => ({ ...current, operationNote: event.target.value }))} rows={3} placeholder="Vi du: Khach doi gio lay hang, da goi xac nhan..." className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          </label>
+        </div>
+        {editError && <div className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{editError}</div>}
+        {editMessage && <div className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-700">{editMessage}</div>}
+        <button type="submit" disabled={savingEdit} className="mt-4 w-full rounded bg-slate-950 px-4 py-2 text-sm font-black text-white disabled:opacity-60">
+          {savingEdit ? "Dang luu..." : "Luu cap nhat don"}
+        </button>
+      </form>
       {Boolean(order.timeline?.length) && (
         <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4">
           <h3 className="text-sm font-black">Lich su xu ly gan nhat</h3>
