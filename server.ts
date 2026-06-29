@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express, { Request, Response } from "express";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import { createServer as createViteServer } from "vite";
 import { mapsService } from "./src/lib/maps/mapsService";
@@ -17,7 +18,7 @@ import { DispatchStatus, OrderStatus, STATUS_LABELS, Visibility } from "./src/li
 import { mockRoutes } from "./src/data/mockRoutes";
 import { mockPricingRules } from "./src/data/mockPricing";
 import { mockPartners } from "./src/data/mockPartners";
-import { seoPages } from "./src/lib/seo/seoPages";
+import { mainSeoRoutes, seoPages } from "./src/lib/seo/seoPages";
 import { initializePersistentStore, isDatabaseEnabled } from "./src/lib/storage/persistentStore";
 import type { Order } from "./src/lib/types";
 import { getThemeSettings, hydrateThemeStorage, resetThemeSettings, updateThemeSettings } from "./src/lib/theme/themeService";
@@ -42,6 +43,149 @@ const editableOrderTextFields = [
 const editableOrderNumberFields = ["packageCount", "weight", "quotedPrice", "finalPrice"] as const;
 
 app.use(express.json({ limit: "10mb" }));
+
+function siteUrl() {
+  return String(process.env.SITE_URL || "https://chuyenphat24h.com").replace(/\/+$/, "");
+}
+
+function absoluteUrl(pathname = "/") {
+  const normalized = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  return `${siteUrl()}${normalized}`;
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeJsonForHtml(value: unknown) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+function normalizePathname(rawPath = "/") {
+  const pathname = rawPath.split("?")[0].split("#")[0] || "/";
+  if (pathname === "/index.html") return "/";
+  return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+}
+
+function findSeoMeta(rawPath: string) {
+  const pathname = normalizePathname(rawPath);
+  const routeMeta = mainSeoRoutes.find((item) => item.path === pathname);
+  if (routeMeta) return { ...routeMeta, path: pathname, h1: routeMeta.title };
+
+  const slug = pathname.replace(/^\//, "");
+  const seoPage = seoPages.find((item) => item.slug === slug);
+  if (seoPage) return { ...seoPage, path: `/${seoPage.slug}` };
+
+  return {
+    path: pathname,
+    title: "Chuyển Phát 24H - Chuyển phát hỏa tốc liên tỉnh",
+    description: "Chuyển Phát 24H nhận hàng tận nơi, giao tận tay theo tuyến xe đang chạy từ Hà Nội đi các tỉnh.",
+    h1: "Chuyển Phát 24H",
+    priority: 0.5,
+    changefreq: "weekly" as const,
+  };
+}
+
+function buildOrganizationSchema() {
+  const theme = getThemeSettings();
+  return {
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    name: theme.brandName,
+    alternateName: theme.brandShortName,
+    url: siteUrl(),
+    image: absoluteUrl(theme.heroImageUrl),
+    telephone: theme.hotline,
+    areaServed: ["Hà Nội", "Bắc Ninh", "Hải Phòng", "Quảng Ninh", "Ninh Bình", "Thanh Hóa", "Nghệ An"],
+    description: theme.footerDescription,
+    address: {
+      "@type": "PostalAddress",
+      addressLocality: "Hà Nội",
+      addressCountry: "VN",
+    },
+  };
+}
+
+function buildServiceSchema(meta: ReturnType<typeof findSeoMeta>) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    name: meta.h1,
+    serviceType: "Chuyển phát hỏa tốc liên tỉnh",
+    provider: {
+      "@type": "LocalBusiness",
+      name: getThemeSettings().brandName,
+      url: siteUrl(),
+    },
+    areaServed: {
+      "@type": "Country",
+      name: "Việt Nam",
+    },
+    url: absoluteUrl(meta.path),
+    description: meta.description,
+  };
+}
+
+function buildWebsiteSchema() {
+  const theme = getThemeSettings();
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: theme.brandName,
+    url: siteUrl(),
+    potentialAction: {
+      "@type": "SearchAction",
+      target: `${siteUrl()}/tra-cuu?ma-don={search_term_string}`,
+      "query-input": "required name=search_term_string",
+    },
+  };
+}
+
+function renderSeoHtml(template: string, requestPath: string) {
+  const meta = findSeoMeta(requestPath);
+  const canonicalUrl = absoluteUrl(meta.path);
+  const theme = getThemeSettings();
+  const imageUrl = absoluteUrl(theme.heroImageUrl);
+  const schema = meta.path === "/"
+    ? [buildOrganizationSchema(), buildWebsiteSchema()]
+    : [buildOrganizationSchema(), buildServiceSchema(meta)];
+  const metaTags = [
+    `<title>${escapeHtml(meta.title)}</title>`,
+    `<meta name="description" content="${escapeHtml(meta.description)}" />`,
+    `<meta name="robots" content="${meta.path === "/admincp" ? "noindex,nofollow" : "index,follow"}" />`,
+    `<link rel="canonical" href="${escapeHtml(canonicalUrl)}" />`,
+    `<meta property="og:site_name" content="${escapeHtml(theme.brandName)}" />`,
+    `<meta property="og:type" content="${meta.path === "/" ? "website" : "article"}" />`,
+    `<meta property="og:title" content="${escapeHtml(meta.title)}" />`,
+    `<meta property="og:description" content="${escapeHtml(meta.description)}" />`,
+    `<meta property="og:url" content="${escapeHtml(canonicalUrl)}" />`,
+    `<meta property="og:image" content="${escapeHtml(imageUrl)}" />`,
+    `<meta name="twitter:card" content="summary_large_image" />`,
+    `<meta name="twitter:title" content="${escapeHtml(meta.title)}" />`,
+    `<meta name="twitter:description" content="${escapeHtml(meta.description)}" />`,
+    `<meta name="twitter:image" content="${escapeHtml(imageUrl)}" />`,
+    `<script type="application/ld+json">${escapeJsonForHtml(schema)}</script>`,
+  ].join("\n    ");
+
+  const withoutExistingTitle = template.replace(/<title>[\s\S]*?<\/title>/i, "");
+  return withoutExistingTitle.replace("</head>", `    ${metaTags}\n  </head>`);
+}
+
+function sitemapEntries() {
+  return [
+    ...mainSeoRoutes,
+    ...seoPages.map((page) => ({
+      path: `/${page.slug}`,
+      priority: page.priority,
+      changefreq: page.changefreq,
+    })),
+  ];
+}
 
 function normalizeText(value: unknown) {
   return String(value || "").trim().toLowerCase();
@@ -370,6 +514,36 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+app.get("/robots.txt", (_req, res) => {
+  res.type("text/plain").send([
+    "User-agent: *",
+    "Allow: /",
+    "Disallow: /admincp",
+    "Disallow: /api/",
+    `Sitemap: ${absoluteUrl("/sitemap.xml")}`,
+    "",
+  ].join("\n"));
+});
+
+app.get("/sitemap.xml", (_req, res) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const urls = sitemapEntries().map((entry) => [
+    "  <url>",
+    `    <loc>${escapeHtml(absoluteUrl(entry.path))}</loc>`,
+    `    <lastmod>${today}</lastmod>`,
+    `    <changefreq>${entry.changefreq}</changefreq>`,
+    `    <priority>${entry.priority.toFixed(2)}</priority>`,
+    "  </url>",
+  ].join("\n"));
+  res.type("application/xml").send([
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...urls,
+    "</urlset>",
+    "",
+  ].join("\n"));
+});
+
 app.get("/api/admin/session", (req, res) => {
   res.json({ authenticated: isAdminAuthenticated(req), username: isAdminAuthenticated(req) ? adminUsername : null });
 });
@@ -646,9 +820,11 @@ async function setupApp() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
+    const indexHtmlPath = path.join(distPath, "index.html");
     app.use(express.static(distPath));
-    app.get("*", (_req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+    app.get("*", (req, res) => {
+      const template = fs.readFileSync(indexHtmlPath, "utf8");
+      res.type("html").send(renderSeoHtml(template, req.path));
     });
   }
 
