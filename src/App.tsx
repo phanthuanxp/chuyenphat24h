@@ -35,9 +35,10 @@ import {
 import { ITEM_TYPE_LABELS, ItemType, OrderStatus, STATUS_LABELS } from "./lib/constants/enums";
 import type { MapsAddress, Order, PublicTrackingInfo, RouteEstimate } from "./lib/types";
 import { ThemeLanding } from "./components/ThemeLanding";
+import { defaultThemeSettings, SiteThemeSettings } from "./lib/theme/themeTypes";
 
 type View = "home" | "order" | "tracking" | "routes" | "pricing" | "policy" | "contact" | "admin" | "seo";
-type AdminModule = "dashboard" | "orders" | "dispatch" | "zalo" | "routes" | "partners" | "customers" | "pricing" | "seo" | "settings";
+type AdminModule = "dashboard" | "orders" | "dispatch" | "zalo" | "routes" | "partners" | "customers" | "pricing" | "seo" | "theme" | "settings";
 type AdminOrderEditPayload = Partial<
   Pick<
     Order,
@@ -87,6 +88,7 @@ const adminModules: Array<{ id: AdminModule; label: string; icon: React.ElementT
 ];
 
 const itemOptions = Object.values(ItemType);
+adminModules.splice(adminModules.length - 1, 0, { id: "theme", label: "Theme web", icon: Sparkles });
 const adminOrderStatusOptions = Array.from(new Set(Object.values(OrderStatus)));
 const phoneHref = "tel:0345076789";
 
@@ -101,18 +103,44 @@ function getInitialView(): View {
 function App() {
   const [view, setView] = useState<View>(getInitialView);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [themeSettings, setThemeSettings] = useState<SiteThemeSettings>(defaultThemeSettings);
   const usesThemeLanding = view === "home";
   const usesPublicChrome = view !== "home" && view !== "admin";
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/theme-settings")
+      .then((res) => res.json())
+      .then((theme: SiteThemeSettings) => {
+        if (!active) return;
+        const nextTheme = { ...defaultThemeSettings, ...theme };
+        setThemeSettings(nextTheme);
+        document.title = `${nextTheme.brandName} - Hoa toc lien tinh`;
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     document.title = "Chuyển Phát 24H - Hỏa tốc liên tỉnh từ Hà Nội";
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#f6f8fb] text-slate-950" style={{ fontFamily: "'Be Vietnam Pro', system-ui, sans-serif" }}>
+    <div
+      className="min-h-screen bg-[#f6f8fb] text-slate-950"
+      style={{
+        fontFamily: "'Be Vietnam Pro', system-ui, sans-serif",
+        "--cp24h-primary": themeSettings.primaryColor,
+        "--cp24h-secondary": themeSettings.secondaryColor,
+        "--cp24h-accent": themeSettings.accentColor,
+      } as React.CSSProperties}
+    >
       {usesPublicChrome && (
         <Header
           view={view}
+          theme={themeSettings}
           setView={(next) => {
             setView(next);
             setMobileOpen(false);
@@ -123,41 +151,43 @@ function App() {
         />
       )}
       <main>
-        {view === "home" && <ThemeLanding setView={setView} />}
+        {view === "home" && <ThemeLanding setView={setView} theme={themeSettings} />}
         {view === "order" && <OrderPage />}
         {view === "tracking" && <TrackingPage />}
         {view === "routes" && <RoutesPage />}
         {view === "pricing" && <PricingPage />}
         {view === "policy" && <PolicyPage />}
         {view === "contact" && <ContactPage />}
-        {view === "admin" && <AdminPage />}
+        {view === "admin" && <AdminPage theme={themeSettings} onThemeChange={setThemeSettings} />}
         {view === "seo" && <SeoPage setView={setView} />}
       </main>
-      {usesPublicChrome && <Footer setView={setView} />}
+      {usesPublicChrome && <Footer setView={setView} theme={themeSettings} />}
     </div>
   );
 }
 
 function Header({
   view,
+  theme,
   setView,
   mobileOpen,
   setMobileOpen,
 }: {
   view: View;
+  theme: SiteThemeSettings;
   setView: (view: View) => void;
   mobileOpen: boolean;
   setMobileOpen: (open: boolean) => void;
 }) {
   return (
-    <header className="sticky top-0 z-50 border-b border-white/10 bg-[#071329]/95 text-white shadow-[0_10px_30px_rgba(7,19,41,.18)] backdrop-blur">
+    <header className="sticky top-0 z-50 border-b border-white/10 text-white shadow-[0_10px_30px_rgba(7,19,41,.18)] backdrop-blur" style={{ backgroundColor: `${theme.secondaryColor}f2` }}>
       <div className="mx-auto flex h-[78px] max-w-[1480px] items-center px-4 sm:px-6 lg:px-[10%]">
         <button className="mr-7 flex flex-none items-center gap-2 text-left" onClick={() => setView("home")}>
-          <span className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] bg-gradient-to-br from-[#f25c2b] to-[#ff8a57] shadow-[0_3px_10px_rgba(242,92,43,.3)]">
+          <span className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] shadow-[0_3px_10px_rgba(242,92,43,.3)]" style={{ background: `linear-gradient(135deg, ${theme.primaryColor}, ${theme.accentColor})` }}>
             <Truck className="h-6 w-6 text-white" />
           </span>
           <span className="text-left">
-            <span className="block text-base font-extrabold tracking-wide text-white">CP<span className="text-[#f25c2b]">24H</span></span>
+            <span className="block text-base font-extrabold tracking-wide text-white">{theme.brandShortName}</span>
             <span className="hidden text-xs font-semibold text-[#aebbcd] sm:block">Hàng đi theo tuyến xe đang chạy</span>
           </span>
         </button>
@@ -782,7 +812,7 @@ function TrackingPage() {
   );
 }
 
-function AdminPage() {
+function AdminPage({ theme, onThemeChange }: { theme: SiteThemeSettings; onThemeChange: (theme: SiteThemeSettings) => void }) {
   const [authenticated, setAuthenticated] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -930,6 +960,7 @@ function AdminPage() {
         </aside>
 
         <div className="min-w-0">
+          {activeModule === "theme" && <AdminThemeEditor theme={theme} onThemeChange={onThemeChange} onUnauthorized={handleUnauthorized} />}
           {activeModule === "dashboard" && <AdminDashboard orders={orders} />}
           {activeModule === "orders" && <AdminOrders orders={orders} selectedOrderId={selectedOrderId} setSelectedOrderId={setSelectedOrderId} selectedOrder={selectedOrder} onApprove={approveSelectedOrder} onAssignVehicle={assignNearestVehicleToSelectedOrder} onSave={saveSelectedOrder} onUnauthorized={handleUnauthorized} />}
           {activeModule === "dispatch" && <AdminDispatch selectedOrder={selectedOrder} preview={preview} previewDispatch={previewDispatch} sendDispatch={sendDispatch} />}
@@ -943,6 +974,186 @@ function AdminPage() {
         </div>
       </div>
     </section>
+  );
+}
+
+function AdminThemeEditor({
+  theme,
+  onThemeChange,
+  onUnauthorized,
+}: {
+  theme: SiteThemeSettings;
+  onThemeChange: (theme: SiteThemeSettings) => void;
+  onUnauthorized: () => void;
+}) {
+  const [form, setForm] = useState<SiteThemeSettings>(theme);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setForm(theme);
+  }, [theme]);
+
+  function updateField<K extends keyof SiteThemeSettings>(field: K, value: SiteThemeSettings[K]) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function saveTheme(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const res = await fetch("/api/admin/theme-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (res.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Khong luu duoc theme.");
+      onThemeChange({ ...defaultThemeSettings, ...data });
+      setMessage("Da luu theme web.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Khong luu duoc theme.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetTheme() {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const res = await fetch("/api/admin/theme-settings/reset", { method: "POST" });
+      if (res.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Khong reset duoc theme.");
+      onThemeChange({ ...defaultThemeSettings, ...data });
+      setMessage("Da reset theme ve mac dinh.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Khong reset duoc theme.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={saveTheme} className="rounded border border-slate-200 bg-white p-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="flex items-center gap-3">
+            <Sparkles className="h-5 w-5 text-red-600" />
+            <h2 className="font-black">Theme web</h2>
+          </div>
+          <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+            Tuy bien nhanh noi dung va mau chu dao cua trang public. Cac thay doi duoc luu vao storage/DB production.
+          </p>
+        </div>
+        <button type="button" onClick={resetTheme} disabled={saving} className="rounded border border-slate-300 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+          Reset mac dinh
+        </button>
+      </div>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_360px]">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <ThemeEditorInput label="Ten thuong hieu" value={form.brandName} onChange={(value) => updateField("brandName", value)} />
+          <ThemeEditorInput label="Ten rut gon logo" value={form.brandShortName} onChange={(value) => updateField("brandShortName", value)} />
+          <ThemeEditorInput label="Tagline" value={form.tagline} onChange={(value) => updateField("tagline", value)} />
+          <ThemeEditorInput label="Hotline" value={form.hotline} onChange={(value) => updateField("hotline", value)} />
+          <ThemeEditorInput label="Anh hero URL" value={form.heroImageUrl} onChange={(value) => updateField("heroImageUrl", value)} className="sm:col-span-2" />
+          <ThemeEditorTextarea label="Tieu de hero" value={form.heroTitle} onChange={(value) => updateField("heroTitle", value)} />
+          <ThemeEditorTextarea label="Cum nhan manh hero" value={form.heroHighlight} onChange={(value) => updateField("heroHighlight", value)} />
+          <ThemeEditorTextarea label="Mo ta form hero" value={form.heroSubtitle} onChange={(value) => updateField("heroSubtitle", value)} className="sm:col-span-2" />
+          <ThemeEditorInput label="Nut CTA chinh" value={form.ctaPrimary} onChange={(value) => updateField("ctaPrimary", value)} />
+          <ThemeEditorInput label="Nut CTA phu" value={form.ctaSecondary} onChange={(value) => updateField("ctaSecondary", value)} />
+          <ThemeEditorTextarea label="Mo ta footer" value={form.footerDescription} onChange={(value) => updateField("footerDescription", value)} className="sm:col-span-2" />
+        </div>
+
+        <div className="rounded border border-slate-200 bg-slate-50 p-4">
+          <h3 className="font-black">Mau sac</h3>
+          <div className="mt-4 grid gap-3">
+            <ThemeColorInput label="Mau chinh" value={form.primaryColor} onChange={(value) => updateField("primaryColor", value)} />
+            <ThemeColorInput label="Mau nen/header" value={form.secondaryColor} onChange={(value) => updateField("secondaryColor", value)} />
+            <ThemeColorInput label="Mau phu/gradient" value={form.accentColor} onChange={(value) => updateField("accentColor", value)} />
+          </div>
+          <div className="mt-5 overflow-hidden rounded border border-slate-200 bg-white">
+            <div className="p-4 text-white" style={{ background: `linear-gradient(135deg, ${form.secondaryColor}, ${form.primaryColor})` }}>
+              <div className="text-xs font-black uppercase tracking-wide">{form.brandShortName}</div>
+              <div className="mt-3 text-xl font-black">{form.heroTitle}</div>
+              <div className="text-xl font-black" style={{ color: form.accentColor }}>{form.heroHighlight}</div>
+              <button type="button" className="mt-4 rounded px-4 py-2 text-sm font-black text-white" style={{ backgroundColor: form.primaryColor }}>
+                {form.ctaPrimary}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {error && <div className="mt-4 rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>}
+      {message && <div className="mt-4 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-700">{message}</div>}
+      <button type="submit" disabled={saving} className="mt-5 rounded bg-slate-950 px-5 py-2.5 text-sm font-black text-white disabled:opacity-60">
+        {saving ? "Dang luu..." : "Luu theme web"}
+      </button>
+    </form>
+  );
+}
+
+function ThemeEditorInput({
+  label,
+  value,
+  onChange,
+  className = "",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  return (
+    <label className={className}>
+      <FieldLabel>{label}</FieldLabel>
+      <input value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+    </label>
+  );
+}
+
+function ThemeEditorTextarea({
+  label,
+  value,
+  onChange,
+  className = "",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  return (
+    <label className={className}>
+      <FieldLabel>{label}</FieldLabel>
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={3} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+    </label>
+  );
+}
+
+function ThemeColorInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label>
+      <FieldLabel>{label}</FieldLabel>
+      <div className="mt-1 flex gap-2">
+        <input type="color" value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-12 rounded border border-slate-300 bg-white p-1" />
+        <input value={value} onChange={(event) => onChange(event.target.value)} className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+      </div>
+    </label>
   );
 }
 
@@ -1727,9 +1938,10 @@ function PageShell({ title, desc, children }: { title: string; desc: string; chi
   );
 }
 
-function Footer({ setView }: { setView: (view: View) => void }) {
+function Footer({ setView, theme }: { setView: (view: View) => void; theme: SiteThemeSettings }) {
+  const footerPhoneHref = `tel:${theme.hotline.replace(/\D/g, "")}`;
   return (
-    <footer className="bg-[#081730] text-[#aebbcd]">
+    <footer className="text-[#aebbcd]" style={{ backgroundColor: theme.secondaryColor }}>
       <div className="mx-auto grid max-w-[1480px] gap-8 px-4 py-10 sm:px-6 md:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr] lg:px-[10%]">
         <div>
           <div className="flex items-center gap-3">
@@ -1756,9 +1968,9 @@ function Footer({ setView }: { setView: (view: View) => void }) {
         <div>
           <h4 className="mb-4 mt-1 text-[13px] font-bold tracking-wide text-white">LIÊN HỆ</h4>
           <div className="grid gap-3 text-[13.5px]">
-            <a href={phoneHref} className="flex items-center gap-2 font-bold text-white">
+            <a href={footerPhoneHref} className="flex items-center gap-2 font-bold text-white">
               <Phone className="h-4 w-4 text-[#f25c2b]" />
-              {hotline}
+              {theme.hotline}
             </a>
             <span className="flex items-center gap-2">
               <MapPin className="h-4 w-4 text-[#f25c2b]" />

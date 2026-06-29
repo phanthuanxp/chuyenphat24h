@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 
-type PersistentCollection = "orders" | "dispatchLogs" | "notificationLogs" | "partnerApplications";
+type PersistentCollection = "orders" | "dispatchLogs" | "notificationLogs" | "partnerApplications" | "themeSettings";
 type RowWithId = { id?: string };
 
 let pool: Pool | null = null;

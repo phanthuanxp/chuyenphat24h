@@ -20,6 +20,7 @@ import { mockPartners } from "./src/data/mockPartners";
 import { seoPages } from "./src/lib/seo/seoPages";
 import { initializePersistentStore, isDatabaseEnabled } from "./src/lib/storage/persistentStore";
 import type { Order } from "./src/lib/types";
+import { getThemeSettings, hydrateThemeStorage, resetThemeSettings, updateThemeSettings } from "./src/lib/theme/themeService";
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -373,6 +374,10 @@ app.get("/api/admin/session", (req, res) => {
   res.json({ authenticated: isAdminAuthenticated(req), username: isAdminAuthenticated(req) ? adminUsername : null });
 });
 
+app.get("/api/theme-settings", (_req, res) => {
+  res.json(getThemeSettings());
+});
+
 app.post("/api/admin/login", (req, res) => {
   const { username, password } = req.body;
   if (username !== adminUsername || password !== adminPassword) {
@@ -429,6 +434,18 @@ app.get("/api/admin/orders/export.csv", requireAdmin, (req, res) => {
 
 app.get("/api/notification/logs", requireAdmin, (_req, res) => {
   res.json(getNotificationLogs());
+});
+
+app.get("/api/admin/theme-settings", requireAdmin, (_req, res) => {
+  res.json(getThemeSettings());
+});
+
+app.put("/api/admin/theme-settings", requireAdmin, (req, res) => {
+  res.json(updateThemeSettings(req.body));
+});
+
+app.post("/api/admin/theme-settings/reset", requireAdmin, (_req, res) => {
+  res.json(resetThemeSettings());
 });
 
 app.post("/api/admin/orders/:id/approve", requireAdmin, (req, res) => {
@@ -618,6 +635,7 @@ async function setupApp() {
     hydrateDispatchStorage(),
     hydrateNotificationStorage(),
     hydratePartnerStorage(),
+    hydrateThemeStorage(),
   ]);
 
   if (process.env.NODE_ENV !== "production") {
