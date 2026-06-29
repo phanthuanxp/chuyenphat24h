@@ -1,4 +1,5 @@
 export interface SeoPage {
+  id?: string;
   slug: string;
   title: string;
   description: string;

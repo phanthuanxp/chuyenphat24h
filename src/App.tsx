@@ -36,7 +36,7 @@ import { ITEM_TYPE_LABELS, ItemType, OrderStatus, STATUS_LABELS } from "./lib/co
 import type { MapsAddress, Order, PublicTrackingInfo, RouteEstimate } from "./lib/types";
 import { ThemeLanding } from "./components/ThemeLanding";
 import { defaultThemeSettings, SiteThemeSettings } from "./lib/theme/themeTypes";
-import { seoPages } from "./lib/seo/seoPages";
+import { seoPages as defaultSeoPages, type SeoPage as SeoPageConfig } from "./lib/seo/seoPages";
 
 type View = "home" | "order" | "tracking" | "routes" | "pricing" | "policy" | "contact" | "admin" | "seo";
 type AdminModule = "dashboard" | "orders" | "dispatch" | "zalo" | "routes" | "partners" | "customers" | "pricing" | "seo" | "theme" | "settings";
@@ -114,6 +114,7 @@ function App() {
   const [view, setView] = useState<View>(getInitialView);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [themeSettings, setThemeSettings] = useState<SiteThemeSettings>(defaultThemeSettings);
+  const [seoPageList, setSeoPageList] = useState<SeoPageConfig[]>(defaultSeoPages);
   const usesThemeLanding = view === "home";
   const usesPublicChrome = view !== "home" && view !== "admin";
 
@@ -137,7 +138,21 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const currentSeoPage = seoPages.find((page) => `/${page.slug}` === window.location.pathname);
+    let active = true;
+    fetch("/api/seo-pages")
+      .then((res) => res.json())
+      .then((pages: SeoPageConfig[]) => {
+        if (!active) return;
+        if (Array.isArray(pages) && pages.length) setSeoPageList(pages);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const currentSeoPage = seoPageList.find((page) => `/${page.slug}` === window.location.pathname);
     const pageTitles: Record<View, string> = {
       home: `${themeSettings.brandName} - Chuyển phát hỏa tốc liên tỉnh`,
       order: `Tạo đơn chuyển phát - ${themeSettings.brandName}`,
@@ -150,7 +165,7 @@ function App() {
       seo: currentSeoPage?.title || `${themeSettings.brandName} - Chuyển phát hỏa tốc liên tỉnh`,
     };
     document.title = pageTitles[view];
-  }, [themeSettings.brandName, view]);
+  }, [seoPageList, themeSettings.brandName, view]);
 
   return (
     <div
@@ -183,8 +198,8 @@ function App() {
         {view === "pricing" && <PricingPage />}
         {view === "policy" && <PolicyPage />}
         {view === "contact" && <ContactPage />}
-        {view === "admin" && <AdminPage theme={themeSettings} onThemeChange={setThemeSettings} />}
-        {view === "seo" && <SeoPage setView={setView} />}
+        {view === "admin" && <AdminPage theme={themeSettings} onThemeChange={setThemeSettings} seoPages={seoPageList} onSeoPagesChange={setSeoPageList} />}
+        {view === "seo" && <SeoPage setView={setView} seoPages={seoPageList} />}
       </main>
       {usesPublicChrome && <Footer setView={setView} theme={themeSettings} />}
     </div>
@@ -839,7 +854,17 @@ function TrackingPage() {
   );
 }
 
-function AdminPage({ theme, onThemeChange }: { theme: SiteThemeSettings; onThemeChange: (theme: SiteThemeSettings) => void }) {
+function AdminPage({
+  theme,
+  onThemeChange,
+  seoPages,
+  onSeoPagesChange,
+}: {
+  theme: SiteThemeSettings;
+  onThemeChange: (theme: SiteThemeSettings) => void;
+  seoPages: SeoPageConfig[];
+  onSeoPagesChange: (pages: SeoPageConfig[]) => void;
+}) {
   const [authenticated, setAuthenticated] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -996,7 +1021,7 @@ function AdminPage({ theme, onThemeChange }: { theme: SiteThemeSettings; onTheme
           {activeModule === "partners" && <AdminPlaceholder title="Đối tác đội xe" icon={UserRoundCheck} rows={["Nguyễn Văn An - xe 7 chỗ", "Trần Văn Bình - xe 16 chỗ", "Ứng tuyển mới cần duyệt"]} />}
           {activeModule === "customers" && <AdminPlaceholder title="Khách hàng" icon={Users} rows={["Shop online", "Khách cá nhân", "Doanh nghiệp gửi hồ sơ"]} />}
           {activeModule === "pricing" && <AdminPlaceholder title="Bảng giá" icon={WalletCards} rows={["Giấy tờ tuyến gần từ 150.000đ", "Hàng shop trong ngày từ 190.000đ", "Xe máy / hàng cồng kềnh báo giá thủ công"]} />}
-          {activeModule === "seo" && <AdminSeoPanel />}
+          {activeModule === "seo" && <AdminSeoPanel pages={seoPages} onPagesChange={onSeoPagesChange} onUnauthorized={handleUnauthorized} />}
           {activeModule === "settings" && <AdminPlaceholder title="Cài đặt hệ thống" icon={Settings} rows={["MAPS_PROVIDER=mock", "ZALO dispatch mock", "PostgreSQL storage qua DATABASE_URL"]} />}
         </div>
       </div>
@@ -2130,22 +2155,107 @@ function AdminPlaceholder({ title, icon: Icon, rows }: { title: string; icon: Re
   );
 }
 
-function AdminSeoPanel() {
+function AdminSeoPanel({
+  pages,
+  onPagesChange,
+  onUnauthorized,
+}: {
+  pages: SeoPageConfig[];
+  onPagesChange: (pages: SeoPageConfig[]) => void;
+  onUnauthorized: () => void;
+}) {
+  const [selectedSlug, setSelectedSlug] = useState(pages[0]?.slug || "");
+  const [draft, setDraft] = useState<SeoPageConfig>(pages[0] || defaultSeoPages[0]);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
   const seoChecks = [
     "HTML production inject title, description, canonical, OpenGraph và Twitter Card theo URL",
     "robots.txt cho phép public page, chặn /admincp và /api/",
     "sitemap.xml gồm trang chính và landing page SEO dịch vụ",
     "JSON-LD LocalBusiness, WebSite và Service được xuất từ server",
   ];
+  const selectedPage = pages.find((page) => page.slug === selectedSlug) || pages[0] || defaultSeoPages[0];
+
+  useEffect(() => {
+    if (!pages.some((page) => page.slug === selectedSlug)) {
+      setSelectedSlug(pages[0]?.slug || "");
+      return;
+    }
+    setDraft(selectedPage);
+  }, [pages, selectedPage, selectedSlug]);
+
+  function updateDraft<K extends keyof SeoPageConfig>(field: K, value: SeoPageConfig[K]) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  async function saveSelectedPage(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/seo-pages/${draft.slug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+      if (res.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Không lưu được SEO page.");
+      const nextPages = pages.map((page) => (page.slug === data.slug ? data : page));
+      onPagesChange(nextPages);
+      setMessage("Đã lưu nội dung SEO.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Không lưu được SEO page.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetSeo() {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const res = await fetch("/api/admin/seo-pages/reset", { method: "POST" });
+      if (res.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Không reset được SEO pages.");
+      onPagesChange(data);
+      setSelectedSlug(data[0]?.slug || "");
+      setMessage("Đã reset SEO pages về mặc định.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Không reset được SEO pages.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="space-y-5">
       <div className="rounded border border-slate-200 bg-white p-5">
-        <div className="flex items-center gap-3">
-          <FileSearch className="h-5 w-5 text-red-600" />
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <h2 className="font-black">Nội dung SEO</h2>
-            <p className="mt-1 text-sm font-semibold text-slate-600">Theo dõi các landing page SEO và technical SEO đang xuất ra public.</p>
+            <div className="flex items-center gap-3">
+              <FileSearch className="h-5 w-5 text-red-600" />
+              <h2 className="font-black">Nội dung SEO</h2>
+            </div>
+            <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Chỉnh title, description, H1, nội dung intro, keyword và tần suất sitemap cho từng landing page.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <a href="/sitemap.xml" target="_blank" rel="noreferrer" className="rounded border border-slate-300 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50">
+              Xem sitemap
+            </a>
+            <button type="button" onClick={resetSeo} disabled={saving} className="rounded border border-slate-300 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+              Reset SEO
+            </button>
           </div>
         </div>
         <div className="mt-5 grid gap-3 md:grid-cols-2">
@@ -2158,35 +2268,75 @@ function AdminSeoPanel() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-5 py-4">
-          <h3 className="font-black">Landing page SEO</h3>
+      <form onSubmit={saveSelectedPage} className="grid gap-5 lg:grid-cols-[340px_1fr]">
+        <div className="rounded border border-slate-200 bg-white p-4">
+          <h3 className="font-black">Landing page</h3>
+          <div className="mt-4 grid max-h-[580px] gap-2 overflow-y-auto pr-1">
+            {pages.map((page) => (
+              <button
+                key={page.slug}
+                type="button"
+                onClick={() => setSelectedSlug(page.slug)}
+                className={`rounded border p-3 text-left transition ${page.slug === selectedSlug ? "border-red-300 bg-red-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}
+              >
+                <span className="block text-xs font-black text-red-600">/{page.slug}</span>
+                <span className="mt-1 block text-sm font-bold leading-5 text-slate-800">{page.h1}</span>
+                <span className="mt-1 block text-xs font-semibold text-slate-500">Priority {page.priority.toFixed(2)} · {page.changefreq}</span>
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-3">URL</th>
-                <th className="px-4 py-3">Title</th>
-                <th className="px-4 py-3">Description</th>
-                <th className="px-4 py-3">Priority</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {seoPages.map((page) => (
-                <tr key={page.slug} className="align-top">
-                  <td className="px-4 py-3">
-                    <a href={`/${page.slug}`} className="font-black text-red-600 hover:underline">/{page.slug}</a>
-                  </td>
-                  <td className="max-w-xs px-4 py-3 font-bold text-slate-800">{page.title}</td>
-                  <td className="max-w-md px-4 py-3 leading-6 text-slate-600">{page.description}</td>
-                  <td className="px-4 py-3 font-black text-slate-500">{page.priority.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+        <div className="rounded border border-slate-200 bg-white p-5">
+          <div className="grid gap-4">
+            <ThemeEditorInput label="Slug URL" value={`/${draft.slug}`} onChange={() => undefined} />
+            <ThemeEditorInput label="Meta title" value={draft.title} onChange={(value) => updateDraft("title", value)} />
+            <ThemeEditorTextarea label="Meta description" value={draft.description} onChange={(value) => updateDraft("description", value)} />
+            <ThemeEditorInput label="H1" value={draft.h1} onChange={(value) => updateDraft("h1", value)} />
+            <ThemeEditorTextarea label="Intro nội dung" value={draft.intro} onChange={(value) => updateDraft("intro", value)} />
+            <ThemeEditorInput label="Keywords, cách nhau bằng dấu phẩy" value={draft.keywords.join(", ")} onChange={(value) => updateDraft("keywords", value.split(",").map((item) => item.trim()).filter(Boolean))} />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label>
+                <FieldLabel>Priority sitemap</FieldLabel>
+                <input type="number" min="0.1" max="1" step="0.01" value={draft.priority} onChange={(event) => updateDraft("priority", Number(event.target.value))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+              </label>
+              <label>
+                <FieldLabel>Changefreq</FieldLabel>
+                <select value={draft.changefreq} onChange={(event) => updateDraft("changefreq", event.target.value as SeoPageConfig["changefreq"])} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold">
+                  <option value="daily">daily</option>
+                  <option value="weekly">weekly</option>
+                  <option value="monthly">monthly</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="rounded border border-slate-200 bg-slate-50 p-4">
+              <h4 className="text-sm font-black text-slate-800">Preview Google</h4>
+              <div className="mt-3 rounded bg-white p-4">
+                <div className="text-xs text-slate-500">chuyenphat24h.com/{draft.slug}</div>
+                <div className="mt-1 text-lg font-medium leading-6 text-[#1a0dab]">{draft.title}</div>
+                <div className="mt-1 text-sm leading-6 text-[#4d5156]">{draft.description}</div>
+              </div>
+            </div>
+
+            {(error || message) && (
+              <div>
+                {error && <div className="rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>}
+                {message && <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-700">{message}</div>}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <button type="submit" disabled={saving} className="rounded bg-slate-950 px-5 py-2.5 text-sm font-black text-white disabled:opacity-60">
+                {saving ? "Đang lưu..." : "Lưu SEO page"}
+              </button>
+              <a href={`/${draft.slug}`} target="_blank" rel="noreferrer" className="rounded border border-slate-300 px-5 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50">
+                Xem trang
+              </a>
+            </div>
+          </div>
         </div>
-      </div>
+      </form>
     </div>
   );
 }
@@ -2299,7 +2449,7 @@ function Contact({ icon, title, value }: { icon: React.ReactNode; title: string;
   );
 }
 
-function SeoPage({ setView }: { setView: (view: View) => void }) {
+function SeoPage({ setView, seoPages }: { setView: (view: View) => void; seoPages: SeoPageConfig[] }) {
   const slug = window.location.pathname.replace(/^\//, "");
   const page = seoPages.find((item) => item.slug === slug) || seoPages[0];
   const relatedPages = seoPages.filter((item) => item.slug !== page.slug).slice(0, 6);

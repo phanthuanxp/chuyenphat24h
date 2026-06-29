@@ -18,7 +18,8 @@ import { DispatchStatus, OrderStatus, STATUS_LABELS, Visibility } from "./src/li
 import { mockRoutes } from "./src/data/mockRoutes";
 import { mockPricingRules } from "./src/data/mockPricing";
 import { mockPartners } from "./src/data/mockPartners";
-import { mainSeoRoutes, seoPages } from "./src/lib/seo/seoPages";
+import { mainSeoRoutes } from "./src/lib/seo/seoPages";
+import { getSeoPages, hydrateSeoStorage, resetSeoPages, updateSeoPage, updateSeoPages } from "./src/lib/seo/seoService";
 import { initializePersistentStore, isDatabaseEnabled } from "./src/lib/storage/persistentStore";
 import type { Order } from "./src/lib/types";
 import { getThemeSettings, hydrateThemeStorage, resetThemeSettings, updateThemeSettings } from "./src/lib/theme/themeService";
@@ -78,7 +79,7 @@ function findSeoMeta(rawPath: string) {
   if (routeMeta) return { ...routeMeta, path: pathname, h1: routeMeta.title };
 
   const slug = pathname.replace(/^\//, "");
-  const seoPage = seoPages.find((item) => item.slug === slug);
+  const seoPage = getSeoPages().find((item) => item.slug === slug);
   if (seoPage) return { ...seoPage, path: `/${seoPage.slug}` };
 
   return {
@@ -179,7 +180,7 @@ function renderSeoHtml(template: string, requestPath: string) {
 function sitemapEntries() {
   return [
     ...mainSeoRoutes,
-    ...seoPages.map((page) => ({
+    ...getSeoPages().map((page) => ({
       path: `/${page.slug}`,
       priority: page.priority,
       changefreq: page.changefreq,
@@ -706,7 +707,7 @@ app.get("/api/admin/workspace", requireAdmin, (_req, res) => {
     pricingRules: mockPricingRules,
     partners: mockPartners,
     partnerApplications: getPartnerApplications(),
-    seoPages,
+    seoPages: getSeoPages(),
     dispatchLogs: getDispatchLogs(),
   });
 });
@@ -799,7 +800,25 @@ app.post("/api/partner-applications", (req, res) => {
 });
 
 app.get("/api/seo-pages", (_req, res) => {
-  res.json(seoPages);
+  res.json(getSeoPages());
+});
+
+app.get("/api/admin/seo-pages", requireAdmin, (_req, res) => {
+  res.json(getSeoPages());
+});
+
+app.put("/api/admin/seo-pages", requireAdmin, (req, res) => {
+  res.json(updateSeoPages(req.body));
+});
+
+app.patch("/api/admin/seo-pages/:slug", requireAdmin, (req, res) => {
+  const page = updateSeoPage(req.params.slug, req.body);
+  if (!page) return res.status(404).json({ message: "SEO page not found" });
+  res.json(page);
+});
+
+app.post("/api/admin/seo-pages/reset", requireAdmin, (_req, res) => {
+  res.json(resetSeoPages());
 });
 
 async function setupApp() {
@@ -810,6 +829,7 @@ async function setupApp() {
     hydrateNotificationStorage(),
     hydratePartnerStorage(),
     hydrateThemeStorage(),
+    hydrateSeoStorage(),
   ]);
 
   if (process.env.NODE_ENV !== "production") {
