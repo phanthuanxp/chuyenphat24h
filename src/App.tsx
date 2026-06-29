@@ -36,6 +36,7 @@ import { ITEM_TYPE_LABELS, ItemType, OrderStatus, STATUS_LABELS } from "./lib/co
 import type { MapsAddress, Order, PublicTrackingInfo, RouteEstimate } from "./lib/types";
 import { ThemeLanding } from "./components/ThemeLanding";
 import { defaultThemeSettings, SiteThemeSettings } from "./lib/theme/themeTypes";
+import { seoPages } from "./lib/seo/seoPages";
 
 type View = "home" | "order" | "tracking" | "routes" | "pricing" | "policy" | "contact" | "admin" | "seo";
 type AdminModule = "dashboard" | "orders" | "dispatch" | "zalo" | "routes" | "partners" | "customers" | "pricing" | "seo" | "theme" | "settings";
@@ -91,13 +92,22 @@ const itemOptions = Object.values(ItemType);
 adminModules.splice(adminModules.length - 1, 0, { id: "theme", label: "Theme web", icon: Sparkles });
 const adminOrderStatusOptions = Array.from(new Set(Object.values(OrderStatus)));
 const phoneHref = "tel:0345076789";
+const viewPathMap: Record<string, View> = {
+  "/": "home",
+  "/tao-don": "order",
+  "/tra-cuu": "tracking",
+  "/tuyen-chuyen-phat": "routes",
+  "/bang-gia": "pricing",
+  "/chinh-sach": "policy",
+  "/lien-he": "contact",
+};
 
 function getInitialView(): View {
   if (window.location.pathname === "/admincp") {
     return "admin";
   }
 
-  return window.location.pathname === "/" ? "home" : "seo";
+  return viewPathMap[window.location.pathname] || "seo";
 }
 
 function App() {
@@ -115,7 +125,6 @@ function App() {
         if (!active) return;
         const nextTheme = { ...defaultThemeSettings, ...theme };
         setThemeSettings(nextTheme);
-        document.title = `${nextTheme.brandName} - Hoa toc lien tinh`;
       })
       .catch(() => undefined);
     return () => {
@@ -126,6 +135,22 @@ function App() {
   useEffect(() => {
     document.title = "Chuyển Phát 24H - Hỏa tốc liên tỉnh từ Hà Nội";
   }, []);
+
+  useEffect(() => {
+    const currentSeoPage = seoPages.find((page) => `/${page.slug}` === window.location.pathname);
+    const pageTitles: Record<View, string> = {
+      home: `${themeSettings.brandName} - Chuyển phát hỏa tốc liên tỉnh`,
+      order: `Tạo đơn chuyển phát - ${themeSettings.brandName}`,
+      tracking: `Tra cứu đơn hàng - ${themeSettings.brandName}`,
+      routes: `Tuyến chuyển phát - ${themeSettings.brandName}`,
+      pricing: `Bảng giá chuyển phát - ${themeSettings.brandName}`,
+      policy: `Chính sách dịch vụ - ${themeSettings.brandName}`,
+      contact: `Liên hệ - ${themeSettings.brandName}`,
+      admin: `AdminCP - ${themeSettings.brandName}`,
+      seo: currentSeoPage?.title || `${themeSettings.brandName} - Chuyển phát hỏa tốc liên tỉnh`,
+    };
+    document.title = pageTitles[view];
+  }, [themeSettings.brandName, view]);
 
   return (
     <div
@@ -971,7 +996,7 @@ function AdminPage({ theme, onThemeChange }: { theme: SiteThemeSettings; onTheme
           {activeModule === "partners" && <AdminPlaceholder title="Đối tác đội xe" icon={UserRoundCheck} rows={["Nguyễn Văn An - xe 7 chỗ", "Trần Văn Bình - xe 16 chỗ", "Ứng tuyển mới cần duyệt"]} />}
           {activeModule === "customers" && <AdminPlaceholder title="Khách hàng" icon={Users} rows={["Shop online", "Khách cá nhân", "Doanh nghiệp gửi hồ sơ"]} />}
           {activeModule === "pricing" && <AdminPlaceholder title="Bảng giá" icon={WalletCards} rows={["Giấy tờ tuyến gần từ 150.000đ", "Hàng shop trong ngày từ 190.000đ", "Xe máy / hàng cồng kềnh báo giá thủ công"]} />}
-          {activeModule === "seo" && <AdminPlaceholder title="Nội dung SEO" icon={FileSearch} rows={["chuyen-phat-hoa-toc-lien-tinh", "gui-giay-to-hoa-toc-di-tinh", "chuyen-phat-ha-noi-nghe-an"]} />}
+          {activeModule === "seo" && <AdminSeoPanel />}
           {activeModule === "settings" && <AdminPlaceholder title="Cài đặt hệ thống" icon={Settings} rows={["MAPS_PROVIDER=mock", "ZALO dispatch mock", "PostgreSQL storage qua DATABASE_URL"]} />}
         </div>
       </div>
@@ -2105,6 +2130,67 @@ function AdminPlaceholder({ title, icon: Icon, rows }: { title: string; icon: Re
   );
 }
 
+function AdminSeoPanel() {
+  const seoChecks = [
+    "HTML production inject title, description, canonical, OpenGraph và Twitter Card theo URL",
+    "robots.txt cho phép public page, chặn /admincp và /api/",
+    "sitemap.xml gồm trang chính và landing page SEO dịch vụ",
+    "JSON-LD LocalBusiness, WebSite và Service được xuất từ server",
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded border border-slate-200 bg-white p-5">
+        <div className="flex items-center gap-3">
+          <FileSearch className="h-5 w-5 text-red-600" />
+          <div>
+            <h2 className="font-black">Nội dung SEO</h2>
+            <p className="mt-1 text-sm font-semibold text-slate-600">Theo dõi các landing page SEO và technical SEO đang xuất ra public.</p>
+          </div>
+        </div>
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          {seoChecks.map((item) => (
+            <div key={item} className="flex gap-3 rounded border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold leading-6 text-emerald-800">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 flex-none" />
+              {item}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h3 className="font-black">Landing page SEO</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-3">URL</th>
+                <th className="px-4 py-3">Title</th>
+                <th className="px-4 py-3">Description</th>
+                <th className="px-4 py-3">Priority</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {seoPages.map((page) => (
+                <tr key={page.slug} className="align-top">
+                  <td className="px-4 py-3">
+                    <a href={`/${page.slug}`} className="font-black text-red-600 hover:underline">/{page.slug}</a>
+                  </td>
+                  <td className="max-w-xs px-4 py-3 font-bold text-slate-800">{page.title}</td>
+                  <td className="max-w-md px-4 py-3 leading-6 text-slate-600">{page.description}</td>
+                  <td className="px-4 py-3 font-black text-slate-500">{page.priority.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StatusBadge({ status }: { status: string }) {
   return <span className="rounded bg-slate-100 px-2 py-1 text-xs font-black text-slate-700">{status}</span>;
 }
@@ -2214,13 +2300,42 @@ function Contact({ icon, title, value }: { icon: React.ReactNode; title: string;
 }
 
 function SeoPage({ setView }: { setView: (view: View) => void }) {
+  const slug = window.location.pathname.replace(/^\//, "");
+  const page = seoPages.find((item) => item.slug === slug) || seoPages[0];
+  const relatedPages = seoPages.filter((item) => item.slug !== page.slug).slice(0, 6);
+
   return (
-    <PageShell title="Chuyển phát hỏa tốc liên tỉnh" desc="Trang SEO placeholder cho các slug dịch vụ. Nội dung sẽ được tách thành từng landing page riêng ở phase SEO.">
-      <div className="rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
-        <p className="text-sm leading-7 text-slate-700">
-          Chuyển Phát 24H nhận tận nơi, giao tận tay theo tuyến xe đang chạy từ Hà Nội đi Bắc Ninh, Hải Phòng, Quảng Ninh, Ninh Bình, Thanh Hóa, Nghệ An và các tỉnh trong danh sách phục vụ.
-        </p>
-        <button onClick={() => setView("order")} className="mt-5 rounded-[11px] bg-gradient-to-b from-[#f7723e] to-[#f25c2b] px-4 py-2 text-sm font-black text-white shadow-[0_8px_18px_rgba(242,92,43,.28)]">Tạo đơn ngay</button>
+    <PageShell title={page.h1} desc={page.description}>
+      <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+        <article className="rounded-2xl border border-[#eaeef4] bg-white p-6 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
+          <p className="text-[15px] leading-8 text-slate-700">{page.intro}</p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            {page.keywords.map((keyword) => (
+              <span key={keyword} className="rounded-full bg-[#fff1ea] px-3 py-1 text-xs font-black text-[#f25c2b]">
+                {keyword}
+              </span>
+            ))}
+          </div>
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
+            {["Nhận tận nơi", "Giao tận tay", "Có mã tra cứu"].map((item) => (
+              <div key={item} className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-black text-[#0c2349]">
+                <CheckCircle2 className="mb-3 h-5 w-5 text-[#22a06b]" />
+                {item}
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setView("order")} className="mt-6 rounded-[11px] bg-gradient-to-b from-[#f7723e] to-[#f25c2b] px-5 py-3 text-sm font-black text-white shadow-[0_8px_18px_rgba(242,92,43,.28)]">Tạo đơn ngay</button>
+        </article>
+        <aside className="rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
+          <h2 className="text-base font-black text-[#0c2349]">Dịch vụ liên quan</h2>
+          <div className="mt-4 grid gap-3">
+            {relatedPages.map((item) => (
+              <a key={item.slug} href={`/${item.slug}`} className="rounded border border-slate-200 p-3 text-sm font-bold leading-6 text-slate-700 transition hover:border-[#f25c2b] hover:text-[#0c2349]">
+                {item.h1}
+              </a>
+            ))}
+          </div>
+        </aside>
       </div>
     </PageShell>
   );
