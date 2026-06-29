@@ -1,6 +1,13 @@
 import { readJsonArray, writeJsonArray } from "../storage/jsonStore";
 import { loadPersistentCollection, persistCollection } from "../storage/persistentStore";
-import { defaultThemeSettings, SiteThemeSettings } from "./themeTypes";
+import {
+  defaultThemeSettings,
+  SiteThemeSettings,
+  ThemeFeatureItem,
+  ThemeGoodsItem,
+  ThemeRouteItem,
+  ThemeTextItem,
+} from "./themeTypes";
 
 let themeSettings: SiteThemeSettings = {
   ...defaultThemeSettings,
@@ -17,23 +24,115 @@ function normalizeText(value: unknown, fallback: string) {
   return text || fallback;
 }
 
+function normalizeBoolean(value: unknown, fallback: boolean) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function normalizeStringList(value: unknown, fallback: string[]) {
+  if (!Array.isArray(value)) return fallback;
+  const next = value.map((item) => String(item || "").trim()).filter(Boolean);
+  return next.length ? next : fallback;
+}
+
+function normalizeFeatureList(value: unknown, fallback: ThemeFeatureItem[]) {
+  if (!Array.isArray(value)) return fallback;
+  const next = value
+    .map((item) => ({
+      title: normalizeText((item as Partial<ThemeFeatureItem>)?.title, ""),
+      desc: normalizeText((item as Partial<ThemeFeatureItem>)?.desc, ""),
+    }))
+    .filter((item) => item.title && item.desc);
+  return next.length ? next : fallback;
+}
+
+function normalizeRouteList(value: unknown, fallback: ThemeRouteItem[]) {
+  if (!Array.isArray(value)) return fallback;
+  const next = value
+    .map((item) => ({
+      abbr: normalizeText((item as Partial<ThemeRouteItem>)?.abbr, ""),
+      province: normalizeText((item as Partial<ThemeRouteItem>)?.province, ""),
+    }))
+    .filter((item) => item.abbr && item.province);
+  return next.length ? next : fallback;
+}
+
+function normalizeTextCardList(value: unknown, fallback: ThemeTextItem[]) {
+  if (!Array.isArray(value)) return fallback;
+  const next = value
+    .map((item) => ({
+      title: normalizeText((item as Partial<ThemeTextItem>)?.title, ""),
+      desc: normalizeText((item as Partial<ThemeTextItem>)?.desc, ""),
+    }))
+    .filter((item) => item.title && item.desc);
+  return next.length ? next : fallback;
+}
+
+function normalizeGoodsList(value: unknown, fallback: ThemeGoodsItem[]) {
+  if (!Array.isArray(value)) return fallback;
+  const next = value
+    .map((item) => ({
+      name: normalizeText((item as Partial<ThemeGoodsItem>)?.name, ""),
+      price: normalizeText((item as Partial<ThemeGoodsItem>)?.price, ""),
+    }))
+    .filter((item) => item.name && item.price);
+  return next.length ? next : fallback;
+}
+
+function mergeWithDefaults(settings: Partial<SiteThemeSettings>) {
+  return {
+    ...defaultThemeSettings,
+    ...settings,
+    sectionVisibility: {
+      ...defaultThemeSettings.sectionVisibility,
+      ...(settings.sectionVisibility || {}),
+    },
+  };
+}
+
 function sanitizeThemeSettings(payload: Partial<SiteThemeSettings>) {
+  const current = mergeWithDefaults(themeSettings);
   const next: SiteThemeSettings = {
-    ...themeSettings,
-    brandName: normalizeText(payload.brandName, themeSettings.brandName),
-    brandShortName: normalizeText(payload.brandShortName, themeSettings.brandShortName),
-    tagline: normalizeText(payload.tagline, themeSettings.tagline),
-    hotline: normalizeText(payload.hotline, themeSettings.hotline),
-    primaryColor: normalizeColor(payload.primaryColor, themeSettings.primaryColor),
-    secondaryColor: normalizeColor(payload.secondaryColor, themeSettings.secondaryColor),
-    accentColor: normalizeColor(payload.accentColor, themeSettings.accentColor),
-    heroImageUrl: normalizeText(payload.heroImageUrl, themeSettings.heroImageUrl),
-    heroTitle: normalizeText(payload.heroTitle, themeSettings.heroTitle),
-    heroHighlight: normalizeText(payload.heroHighlight, themeSettings.heroHighlight),
-    heroSubtitle: normalizeText(payload.heroSubtitle, themeSettings.heroSubtitle),
-    ctaPrimary: normalizeText(payload.ctaPrimary, themeSettings.ctaPrimary),
-    ctaSecondary: normalizeText(payload.ctaSecondary, themeSettings.ctaSecondary),
-    footerDescription: normalizeText(payload.footerDescription, themeSettings.footerDescription),
+    ...current,
+    brandName: normalizeText(payload.brandName, current.brandName),
+    brandShortName: normalizeText(payload.brandShortName, current.brandShortName),
+    tagline: normalizeText(payload.tagline, current.tagline),
+    hotline: normalizeText(payload.hotline, current.hotline),
+    primaryColor: normalizeColor(payload.primaryColor, current.primaryColor),
+    secondaryColor: normalizeColor(payload.secondaryColor, current.secondaryColor),
+    accentColor: normalizeColor(payload.accentColor, current.accentColor),
+    heroImageUrl: normalizeText(payload.heroImageUrl, current.heroImageUrl),
+    heroTitle: normalizeText(payload.heroTitle, current.heroTitle),
+    heroHighlight: normalizeText(payload.heroHighlight, current.heroHighlight),
+    heroSubtitle: normalizeText(payload.heroSubtitle, current.heroSubtitle),
+    ctaPrimary: normalizeText(payload.ctaPrimary, current.ctaPrimary),
+    ctaSecondary: normalizeText(payload.ctaSecondary, current.ctaSecondary),
+    footerDescription: normalizeText(payload.footerDescription, current.footerDescription),
+    footerLocation: normalizeText(payload.footerLocation, current.footerLocation),
+    footerCopyright: normalizeText(payload.footerCopyright, current.footerCopyright),
+    routeSectionTitle: normalizeText(payload.routeSectionTitle, current.routeSectionTitle),
+    routeSectionDesc: normalizeText(payload.routeSectionDesc, current.routeSectionDesc),
+    routeCtaText: normalizeText(payload.routeCtaText, current.routeCtaText),
+    whySectionTitle: normalizeText(payload.whySectionTitle, current.whySectionTitle),
+    driverSectionTitle: normalizeText(payload.driverSectionTitle, current.driverSectionTitle),
+    driverSectionDesc: normalizeText(payload.driverSectionDesc, current.driverSectionDesc),
+    goodsSectionTitle: normalizeText(payload.goodsSectionTitle, current.goodsSectionTitle),
+    finalCtaTitle: normalizeText(payload.finalCtaTitle, current.finalCtaTitle),
+    finalCtaHighlight: normalizeText(payload.finalCtaHighlight, current.finalCtaHighlight),
+    finalCtaImageLabel: normalizeText(payload.finalCtaImageLabel, current.finalCtaImageLabel),
+    heroBenefits: normalizeStringList(payload.heroBenefits, current.heroBenefits),
+    featureCards: normalizeFeatureList(payload.featureCards, current.featureCards),
+    routeCards: normalizeRouteList(payload.routeCards, current.routeCards),
+    whyCards: normalizeTextCardList(payload.whyCards, current.whyCards),
+    goodsTypes: normalizeGoodsList(payload.goodsTypes, current.goodsTypes),
+    finalCtaBenefits: normalizeStringList(payload.finalCtaBenefits, current.finalCtaBenefits),
+    sectionVisibility: {
+      features: normalizeBoolean(payload.sectionVisibility?.features, current.sectionVisibility.features),
+      routes: normalizeBoolean(payload.sectionVisibility?.routes, current.sectionVisibility.routes),
+      why: normalizeBoolean(payload.sectionVisibility?.why, current.sectionVisibility.why),
+      driver: normalizeBoolean(payload.sectionVisibility?.driver, current.sectionVisibility.driver),
+      goods: normalizeBoolean(payload.sectionVisibility?.goods, current.sectionVisibility.goods),
+      finalCta: normalizeBoolean(payload.sectionVisibility?.finalCta, current.sectionVisibility.finalCta),
+    },
     id: "site-theme",
     updatedAt: new Date().toISOString(),
   };
@@ -48,12 +147,12 @@ function persistThemeSettings() {
 
 export async function hydrateThemeStorage() {
   const rows = await loadPersistentCollection<SiteThemeSettings>("themeSettings", [themeSettings]);
-  themeSettings = { ...defaultThemeSettings, ...(rows[0] || themeSettings) };
+  themeSettings = sanitizeThemeSettings(rows[0] || themeSettings);
   persistThemeSettings();
 }
 
 export function getThemeSettings() {
-  return themeSettings;
+  return mergeWithDefaults(themeSettings);
 }
 
 export function updateThemeSettings(payload: Partial<SiteThemeSettings>) {

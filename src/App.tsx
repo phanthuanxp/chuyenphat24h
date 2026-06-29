@@ -179,6 +179,7 @@ function Header({
   mobileOpen: boolean;
   setMobileOpen: (open: boolean) => void;
 }) {
+  const themedPhoneHref = `tel:${theme.hotline.replace(/\D/g, "")}`;
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 text-white shadow-[0_10px_30px_rgba(7,19,41,.18)] backdrop-blur" style={{ backgroundColor: `${theme.secondaryColor}f2` }}>
       <div className="mx-auto flex h-[78px] max-w-[1480px] items-center px-4 sm:px-6 lg:px-[10%]">
@@ -188,7 +189,7 @@ function Header({
           </span>
           <span className="text-left">
             <span className="block text-base font-extrabold tracking-wide text-white">{theme.brandShortName}</span>
-            <span className="hidden text-xs font-semibold text-[#aebbcd] sm:block">Hàng đi theo tuyến xe đang chạy</span>
+            <span className="hidden text-xs font-semibold text-[#aebbcd] sm:block">{theme.tagline}</span>
           </span>
         </button>
 
@@ -197,7 +198,8 @@ function Header({
             <button
               key={item.view}
               onClick={() => setView(item.view)}
-              className={`rounded-md px-2.5 py-1.5 transition ${view === item.view ? "bg-[#f25c2b]/20 font-bold text-white" : "text-[#d0daea] hover:bg-white/10 hover:text-white"}`}
+              className={`rounded-md px-2.5 py-1.5 transition ${view === item.view ? "font-bold text-white" : "text-[#d0daea] hover:bg-white/10 hover:text-white"}`}
+              style={view === item.view ? { backgroundColor: `${theme.primaryColor}33` } : undefined}
             >
               {item.label}
             </button>
@@ -205,11 +207,11 @@ function Header({
         </nav>
 
         <div className="ml-auto hidden flex-none items-center gap-3 lg:flex">
-          <a className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/10 transition hover:bg-white/15" href={phoneHref} aria-label="Gọi hotline">
-            <Phone className="h-4 w-4 text-[#f25c2b]" />
+          <a className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/10 transition hover:bg-white/15" href={themedPhoneHref} aria-label="Gọi hotline">
+            <Phone className="h-4 w-4" style={{ color: theme.primaryColor }} />
           </a>
-          <button onClick={() => setView("order")} className="rounded-lg bg-gradient-to-b from-[#f7723e] to-[#f25c2b] px-4 py-2 text-xs font-bold tracking-wide text-white shadow-[0_4px_14px_rgba(242,92,43,.32)] transition hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(242,92,43,.5)]">
-            Tạo đơn nhanh
+          <button onClick={() => setView("order")} className="rounded-lg px-4 py-2 text-xs font-bold tracking-wide text-white shadow-[0_4px_14px_rgba(242,92,43,.32)] transition hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(242,92,43,.5)]" style={{ background: `linear-gradient(180deg, ${theme.accentColor}, ${theme.primaryColor})` }}>
+            {theme.ctaPrimary}
           </button>
         </div>
 
@@ -222,7 +224,7 @@ function Header({
         <div className="border-t border-white/10 bg-[#071329] px-4 py-3 lg:hidden">
           <div className="grid gap-2">
             {navItems.map((item) => (
-              <button key={item.view} onClick={() => setView(item.view)} className={`rounded-lg px-3 py-2 text-left text-sm font-semibold ${view === item.view ? "bg-[#f25c2b]/20 text-white" : "text-[#d0daea] hover:bg-white/10"}`}>
+              <button key={item.view} onClick={() => setView(item.view)} className={`rounded-lg px-3 py-2 text-left text-sm font-semibold ${view === item.view ? "text-white" : "text-[#d0daea] hover:bg-white/10"}`} style={view === item.view ? { backgroundColor: `${theme.primaryColor}33` } : undefined}>
                 {item.label}
               </button>
             ))}
@@ -990,6 +992,7 @@ function AdminThemeEditor({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState<"brand" | "hero" | "sections" | "lists" | "footer">("brand");
 
   useEffect(() => {
     setForm(theme);
@@ -997,6 +1000,73 @@ function AdminThemeEditor({
 
   function updateField<K extends keyof SiteThemeSettings>(field: K, value: SiteThemeSettings[K]) {
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateVisibility(field: keyof SiteThemeSettings["sectionVisibility"], value: boolean) {
+    setForm((current) => ({
+      ...current,
+      sectionVisibility: { ...current.sectionVisibility, [field]: value },
+    }));
+  }
+
+  function updateTextList(field: "heroBenefits" | "finalCtaBenefits", index: number, value: string) {
+    setForm((current) => ({
+      ...current,
+      [field]: current[field].map((item, itemIndex) => (itemIndex === index ? value : item)),
+    }));
+  }
+
+  function addTextListItem(field: "heroBenefits" | "finalCtaBenefits", value: string) {
+    setForm((current) => ({ ...current, [field]: [...current[field], value] }));
+  }
+
+  function removeTextListItem(field: "heroBenefits" | "finalCtaBenefits", index: number) {
+    setForm((current) => ({ ...current, [field]: current[field].filter((_, itemIndex) => itemIndex !== index) }));
+  }
+
+  function updateFeatureCard(field: "featureCards" | "whyCards", index: number, key: "title" | "desc", value: string) {
+    setForm((current) => ({
+      ...current,
+      [field]: current[field].map((item, itemIndex) => (itemIndex === index ? { ...item, [key]: value } : item)),
+    }));
+  }
+
+  function addFeatureCard(field: "featureCards" | "whyCards") {
+    setForm((current) => ({ ...current, [field]: [...current[field], { title: "Tiêu đề mới", desc: "Mô tả ngắn" }] }));
+  }
+
+  function removeFeatureCard(field: "featureCards" | "whyCards", index: number) {
+    setForm((current) => ({ ...current, [field]: current[field].filter((_, itemIndex) => itemIndex !== index) }));
+  }
+
+  function updateRouteCard(index: number, key: "abbr" | "province", value: string) {
+    setForm((current) => ({
+      ...current,
+      routeCards: current.routeCards.map((item, itemIndex) => (itemIndex === index ? { ...item, [key]: value } : item)),
+    }));
+  }
+
+  function addRouteCard() {
+    setForm((current) => ({ ...current, routeCards: [...current.routeCards, { abbr: "NEW", province: "Tỉnh mới" }] }));
+  }
+
+  function removeRouteCard(index: number) {
+    setForm((current) => ({ ...current, routeCards: current.routeCards.filter((_, itemIndex) => itemIndex !== index) }));
+  }
+
+  function updateGoodsType(index: number, key: "name" | "price", value: string) {
+    setForm((current) => ({
+      ...current,
+      goodsTypes: current.goodsTypes.map((item, itemIndex) => (itemIndex === index ? { ...item, [key]: value } : item)),
+    }));
+  }
+
+  function addGoodsType() {
+    setForm((current) => ({ ...current, goodsTypes: [...current.goodsTypes, { name: "Loại hàng mới", price: "Liên hệ" }] }));
+  }
+
+  function removeGoodsType(index: number) {
+    setForm((current) => ({ ...current, goodsTypes: current.goodsTypes.filter((_, itemIndex) => itemIndex !== index) }));
   }
 
   async function saveTheme(event: React.FormEvent) {
@@ -1046,63 +1116,130 @@ function AdminThemeEditor({
     }
   }
 
+  const tabs: Array<{ id: typeof activeTab; label: string }> = [
+    { id: "brand", label: "Thương hiệu" },
+    { id: "hero", label: "Hero" },
+    { id: "sections", label: "Section" },
+    { id: "lists", label: "Danh sách" },
+    { id: "footer", label: "Footer" },
+  ];
+
   return (
-    <form onSubmit={saveTheme} className="rounded border border-slate-200 bg-white p-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <Sparkles className="h-5 w-5 text-red-600" />
-            <h2 className="font-black">Theme web</h2>
-          </div>
-          <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-            Tuy bien nhanh noi dung va mau chu dao cua trang public. Cac thay doi duoc luu vao storage/DB production.
-          </p>
-        </div>
-        <button type="button" onClick={resetTheme} disabled={saving} className="rounded border border-slate-300 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:opacity-60">
-          Reset mac dinh
-        </button>
-      </div>
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_360px]">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <ThemeEditorInput label="Ten thuong hieu" value={form.brandName} onChange={(value) => updateField("brandName", value)} />
-          <ThemeEditorInput label="Ten rut gon logo" value={form.brandShortName} onChange={(value) => updateField("brandShortName", value)} />
-          <ThemeEditorInput label="Tagline" value={form.tagline} onChange={(value) => updateField("tagline", value)} />
-          <ThemeEditorInput label="Hotline" value={form.hotline} onChange={(value) => updateField("hotline", value)} />
-          <ThemeEditorInput label="Anh hero URL" value={form.heroImageUrl} onChange={(value) => updateField("heroImageUrl", value)} className="sm:col-span-2" />
-          <ThemeEditorTextarea label="Tieu de hero" value={form.heroTitle} onChange={(value) => updateField("heroTitle", value)} />
-          <ThemeEditorTextarea label="Cum nhan manh hero" value={form.heroHighlight} onChange={(value) => updateField("heroHighlight", value)} />
-          <ThemeEditorTextarea label="Mo ta form hero" value={form.heroSubtitle} onChange={(value) => updateField("heroSubtitle", value)} className="sm:col-span-2" />
-          <ThemeEditorInput label="Nut CTA chinh" value={form.ctaPrimary} onChange={(value) => updateField("ctaPrimary", value)} />
-          <ThemeEditorInput label="Nut CTA phu" value={form.ctaSecondary} onChange={(value) => updateField("ctaSecondary", value)} />
-          <ThemeEditorTextarea label="Mo ta footer" value={form.footerDescription} onChange={(value) => updateField("footerDescription", value)} className="sm:col-span-2" />
-        </div>
-
-        <div className="rounded border border-slate-200 bg-slate-50 p-4">
-          <h3 className="font-black">Mau sac</h3>
-          <div className="mt-4 grid gap-3">
-            <ThemeColorInput label="Mau chinh" value={form.primaryColor} onChange={(value) => updateField("primaryColor", value)} />
-            <ThemeColorInput label="Mau nen/header" value={form.secondaryColor} onChange={(value) => updateField("secondaryColor", value)} />
-            <ThemeColorInput label="Mau phu/gradient" value={form.accentColor} onChange={(value) => updateField("accentColor", value)} />
-          </div>
-          <div className="mt-5 overflow-hidden rounded border border-slate-200 bg-white">
-            <div className="p-4 text-white" style={{ background: `linear-gradient(135deg, ${form.secondaryColor}, ${form.primaryColor})` }}>
-              <div className="text-xs font-black uppercase tracking-wide">{form.brandShortName}</div>
-              <div className="mt-3 text-xl font-black">{form.heroTitle}</div>
-              <div className="text-xl font-black" style={{ color: form.accentColor }}>{form.heroHighlight}</div>
-              <button type="button" className="mt-4 rounded px-4 py-2 text-sm font-black text-white" style={{ backgroundColor: form.primaryColor }}>
-                {form.ctaPrimary}
-              </button>
+    <form onSubmit={saveTheme} className="rounded border border-slate-200 bg-white">
+      <div className="border-b border-slate-200 p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <div className="flex items-center gap-3">
+              <Sparkles className="h-5 w-5 text-red-600" />
+              <h2 className="font-black">Theme web</h2>
             </div>
+            <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+              Tùy biến thương hiệu, màu sắc, section trang chủ, danh sách tuyến và loại hàng. Dữ liệu được lưu vào storage/DB production.
+            </p>
           </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={resetTheme} disabled={saving} className="rounded border border-slate-300 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+              Reset mặc định
+            </button>
+            <button type="submit" disabled={saving} className="rounded bg-slate-950 px-5 py-2 text-sm font-black text-white disabled:opacity-60">
+              {saving ? "Đang lưu..." : "Lưu theme web"}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 flex gap-2 overflow-x-auto">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`whitespace-nowrap rounded px-4 py-2 text-sm font-black transition ${activeTab === tab.id ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {error && <div className="mt-4 rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>}
-      {message && <div className="mt-4 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-700">{message}</div>}
-      <button type="submit" disabled={saving} className="mt-5 rounded bg-slate-950 px-5 py-2.5 text-sm font-black text-white disabled:opacity-60">
-        {saving ? "Dang luu..." : "Luu theme web"}
-      </button>
+      <div className="grid gap-5 p-5 xl:grid-cols-[1fr_390px]">
+        <div className="min-w-0">
+          {activeTab === "brand" && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <ThemeEditorInput label="Tên thương hiệu" value={form.brandName} onChange={(value) => updateField("brandName", value)} />
+              <ThemeEditorInput label="Tên rút gọn logo" value={form.brandShortName} onChange={(value) => updateField("brandShortName", value)} />
+              <ThemeEditorInput label="Tagline" value={form.tagline} onChange={(value) => updateField("tagline", value)} />
+              <ThemeEditorInput label="Hotline" value={form.hotline} onChange={(value) => updateField("hotline", value)} />
+              <ThemeColorInput label="Màu chính" value={form.primaryColor} onChange={(value) => updateField("primaryColor", value)} />
+              <ThemeColorInput label="Màu nền/header" value={form.secondaryColor} onChange={(value) => updateField("secondaryColor", value)} />
+              <ThemeColorInput label="Màu nhấn/gradient" value={form.accentColor} onChange={(value) => updateField("accentColor", value)} />
+            </div>
+          )}
+
+          {activeTab === "hero" && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <ThemeEditorInput label="Ảnh hero URL" value={form.heroImageUrl} onChange={(value) => updateField("heroImageUrl", value)} className="sm:col-span-2" />
+              <ThemeEditorTextarea label="Tiêu đề hero" value={form.heroTitle} onChange={(value) => updateField("heroTitle", value)} />
+              <ThemeEditorTextarea label="Cụm nhấn mạnh hero" value={form.heroHighlight} onChange={(value) => updateField("heroHighlight", value)} />
+              <ThemeEditorTextarea label="Mô tả form hero" value={form.heroSubtitle} onChange={(value) => updateField("heroSubtitle", value)} className="sm:col-span-2" />
+              <ThemeEditorInput label="Nút CTA chính" value={form.ctaPrimary} onChange={(value) => updateField("ctaPrimary", value)} />
+              <ThemeEditorInput label="Nút CTA phụ" value={form.ctaSecondary} onChange={(value) => updateField("ctaSecondary", value)} />
+              <ThemeTextListEditor title="Lợi ích hero" items={form.heroBenefits} onChange={(index, value) => updateTextList("heroBenefits", index, value)} onAdd={() => addTextListItem("heroBenefits", "Lợi ích mới")} onRemove={(index) => removeTextListItem("heroBenefits", index)} />
+            </div>
+          )}
+
+          {activeTab === "sections" && (
+            <div className="grid gap-5">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <ThemeSectionToggle label="Thẻ lợi ích đầu trang" checked={form.sectionVisibility.features} onChange={(value) => updateVisibility("features", value)} />
+                <ThemeSectionToggle label="Tuyến chuyển phát" checked={form.sectionVisibility.routes} onChange={(value) => updateVisibility("routes", value)} />
+                <ThemeSectionToggle label="Vì sao chọn" checked={form.sectionVisibility.why} onChange={(value) => updateVisibility("why", value)} />
+                <ThemeSectionToggle label="Thông tin tài xế" checked={form.sectionVisibility.driver} onChange={(value) => updateVisibility("driver", value)} />
+                <ThemeSectionToggle label="Loại hàng hóa" checked={form.sectionVisibility.goods} onChange={(value) => updateVisibility("goods", value)} />
+                <ThemeSectionToggle label="CTA cuối trang" checked={form.sectionVisibility.finalCta} onChange={(value) => updateVisibility("finalCta", value)} />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ThemeEditorInput label="Tiêu đề tuyến" value={form.routeSectionTitle} onChange={(value) => updateField("routeSectionTitle", value)} />
+                <ThemeEditorInput label="Mô tả tuyến" value={form.routeSectionDesc} onChange={(value) => updateField("routeSectionDesc", value)} />
+                <ThemeEditorTextarea label="CTA tuyến" value={form.routeCtaText} onChange={(value) => updateField("routeCtaText", value)} className="sm:col-span-2" />
+                <ThemeEditorInput label="Tiêu đề vì sao chọn" value={form.whySectionTitle} onChange={(value) => updateField("whySectionTitle", value)} />
+                <ThemeEditorInput label="Tiêu đề loại hàng" value={form.goodsSectionTitle} onChange={(value) => updateField("goodsSectionTitle", value)} />
+                <ThemeEditorTextarea label="Tiêu đề thông tin tài xế" value={form.driverSectionTitle} onChange={(value) => updateField("driverSectionTitle", value)} />
+                <ThemeEditorTextarea label="Mô tả thông tin tài xế" value={form.driverSectionDesc} onChange={(value) => updateField("driverSectionDesc", value)} />
+                <ThemeEditorInput label="Tiêu đề CTA cuối" value={form.finalCtaTitle} onChange={(value) => updateField("finalCtaTitle", value)} />
+                <ThemeEditorInput label="Nhấn mạnh CTA cuối" value={form.finalCtaHighlight} onChange={(value) => updateField("finalCtaHighlight", value)} />
+                <ThemeEditorInput label="Nhãn ảnh CTA cuối" value={form.finalCtaImageLabel} onChange={(value) => updateField("finalCtaImageLabel", value)} />
+              </div>
+            </div>
+          )}
+
+          {activeTab === "lists" && (
+            <div className="grid gap-5">
+              <ThemeFeatureListEditor title="Thẻ lợi ích" items={form.featureCards} onChange={(index, key, value) => updateFeatureCard("featureCards", index, key, value)} onAdd={() => addFeatureCard("featureCards")} onRemove={(index) => removeFeatureCard("featureCards", index)} />
+              <ThemeRouteListEditor items={form.routeCards} onChange={updateRouteCard} onAdd={addRouteCard} onRemove={removeRouteCard} />
+              <ThemeFeatureListEditor title="Lý do chọn dịch vụ" items={form.whyCards} onChange={(index, key, value) => updateFeatureCard("whyCards", index, key, value)} onAdd={() => addFeatureCard("whyCards")} onRemove={(index) => removeFeatureCard("whyCards", index)} />
+              <ThemeGoodsListEditor items={form.goodsTypes} onChange={updateGoodsType} onAdd={addGoodsType} onRemove={removeGoodsType} />
+              <ThemeTextListEditor title="Lợi ích CTA cuối" items={form.finalCtaBenefits} onChange={(index, value) => updateTextList("finalCtaBenefits", index, value)} onAdd={() => addTextListItem("finalCtaBenefits", "Lợi ích mới")} onRemove={(index) => removeTextListItem("finalCtaBenefits", index)} />
+            </div>
+          )}
+
+          {activeTab === "footer" && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <ThemeEditorTextarea label="Mô tả footer" value={form.footerDescription} onChange={(value) => updateField("footerDescription", value)} className="sm:col-span-2" />
+              <ThemeEditorInput label="Khu vực liên hệ" value={form.footerLocation} onChange={(value) => updateField("footerLocation", value)} />
+              <ThemeEditorInput label="Copyright" value={form.footerCopyright} onChange={(value) => updateField("footerCopyright", value)} />
+            </div>
+          )}
+        </div>
+
+        <ThemeAdminPreview theme={form} />
+      </div>
+
+      {(error || message) && (
+        <div className="border-t border-slate-200 px-5 py-4">
+          {error && <div className="rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>}
+          {message && <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-700">{message}</div>}
+        </div>
+      )}
     </form>
   );
 }
@@ -1154,6 +1291,186 @@ function ThemeColorInput({ label, value, onChange }: { label: string; value: str
         <input value={value} onChange={(event) => onChange(event.target.value)} className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
       </div>
     </label>
+  );
+}
+
+function ThemeSectionToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <label className="flex items-center justify-between gap-3 rounded border border-slate-200 bg-slate-50 px-4 py-3">
+      <span className="text-sm font-black text-slate-800">{label}</span>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-5 w-5 accent-slate-950" />
+    </label>
+  );
+}
+
+function ThemeListShell({ title, onAdd, children }: { title: string; onAdd: () => void; children: React.ReactNode }) {
+  return (
+    <section className="rounded border border-slate-200 bg-slate-50 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="font-black">{title}</h3>
+        <button type="button" onClick={onAdd} className="rounded bg-white px-3 py-2 text-xs font-black text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100">
+          Thêm
+        </button>
+      </div>
+      <div className="mt-4 grid gap-3">{children}</div>
+    </section>
+  );
+}
+
+function ThemeRemoveButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="rounded border border-red-200 px-3 py-2 text-xs font-black text-red-600 hover:bg-red-50">
+      Xóa
+    </button>
+  );
+}
+
+function ThemeTextListEditor({
+  title,
+  items,
+  onChange,
+  onAdd,
+  onRemove,
+}: {
+  title: string;
+  items: string[];
+  onChange: (index: number, value: string) => void;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+}) {
+  return (
+    <div className="sm:col-span-2">
+      <ThemeListShell title={title} onAdd={onAdd}>
+        {items.map((item, index) => (
+          <div key={`${title}-${index}`} className="grid gap-2 sm:grid-cols-[1fr_auto]">
+            <input value={item} onChange={(event) => onChange(index, event.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+            <ThemeRemoveButton onClick={() => onRemove(index)} />
+          </div>
+        ))}
+      </ThemeListShell>
+    </div>
+  );
+}
+
+function ThemeFeatureListEditor({
+  title,
+  items,
+  onChange,
+  onAdd,
+  onRemove,
+}: {
+  title: string;
+  items: Array<{ title: string; desc: string }>;
+  onChange: (index: number, key: "title" | "desc", value: string) => void;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+}) {
+  return (
+    <ThemeListShell title={title} onAdd={onAdd}>
+      {items.map((item, index) => (
+        <div key={`${title}-${index}`} className="rounded border border-slate-200 bg-white p-3">
+          <div className="grid gap-3 md:grid-cols-[1fr_1.4fr_auto]">
+            <input value={item.title} onChange={(event) => onChange(index, "title", event.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+            <input value={item.desc} onChange={(event) => onChange(index, "desc", event.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+            <ThemeRemoveButton onClick={() => onRemove(index)} />
+          </div>
+        </div>
+      ))}
+    </ThemeListShell>
+  );
+}
+
+function ThemeRouteListEditor({
+  items,
+  onChange,
+  onAdd,
+  onRemove,
+}: {
+  items: SiteThemeSettings["routeCards"];
+  onChange: (index: number, key: "abbr" | "province", value: string) => void;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+}) {
+  return (
+    <ThemeListShell title="Tuyến chuyển phát" onAdd={onAdd}>
+      {items.map((item, index) => (
+        <div key={`${item.abbr}-${index}`} className="grid gap-3 rounded border border-slate-200 bg-white p-3 md:grid-cols-[120px_1fr_auto]">
+          <input value={item.abbr} onChange={(event) => onChange(index, "abbr", event.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          <input value={item.province} onChange={(event) => onChange(index, "province", event.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          <ThemeRemoveButton onClick={() => onRemove(index)} />
+        </div>
+      ))}
+    </ThemeListShell>
+  );
+}
+
+function ThemeGoodsListEditor({
+  items,
+  onChange,
+  onAdd,
+  onRemove,
+}: {
+  items: SiteThemeSettings["goodsTypes"];
+  onChange: (index: number, key: "name" | "price", value: string) => void;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+}) {
+  return (
+    <ThemeListShell title="Loại hàng và giá tham khảo" onAdd={onAdd}>
+      {items.map((item, index) => (
+        <div key={`${item.name}-${index}`} className="grid gap-3 rounded border border-slate-200 bg-white p-3 md:grid-cols-[1fr_180px_auto]">
+          <input value={item.name} onChange={(event) => onChange(index, "name", event.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          <input value={item.price} onChange={(event) => onChange(index, "price", event.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+          <ThemeRemoveButton onClick={() => onRemove(index)} />
+        </div>
+      ))}
+    </ThemeListShell>
+  );
+}
+
+function ThemeAdminPreview({ theme }: { theme: SiteThemeSettings }) {
+  const visibleCount = Object.values(theme.sectionVisibility).filter(Boolean).length;
+  return (
+    <aside className="h-fit rounded border border-slate-200 bg-slate-50 p-4 xl:sticky xl:top-24">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="font-black">Preview nhanh</h3>
+        <span className="rounded bg-white px-2 py-1 text-[11px] font-black text-slate-500 ring-1 ring-slate-200">{visibleCount}/6 section</span>
+      </div>
+      <div className="overflow-hidden rounded border border-slate-200 bg-white">
+        <div
+          className="min-h-[230px] bg-cover bg-center p-4 text-white"
+          style={{
+            backgroundImage: `linear-gradient(110deg, ${theme.secondaryColor}ee, ${theme.secondaryColor}99, ${theme.primaryColor}55), url('${theme.heroImageUrl}')`,
+          }}
+        >
+          <div className="flex items-center gap-2 text-sm font-black">
+            <span className="flex h-8 w-8 items-center justify-center rounded text-white" style={{ background: `linear-gradient(135deg, ${theme.primaryColor}, ${theme.accentColor})` }}>
+              <Truck className="h-4 w-4" />
+            </span>
+            {theme.brandShortName}
+          </div>
+          <h4 className="mt-8 text-2xl font-black leading-tight">
+            {theme.heroTitle} <span style={{ color: theme.accentColor }}>{theme.heroHighlight}</span>
+          </h4>
+          <button type="button" className="mt-5 rounded px-4 py-2 text-xs font-black text-white" style={{ background: `linear-gradient(180deg, ${theme.accentColor}, ${theme.primaryColor})` }}>
+            {theme.ctaPrimary}
+          </button>
+        </div>
+        <div className="grid gap-2 p-4">
+          {theme.featureCards.slice(0, 3).map((item) => (
+            <div key={item.title} className="rounded border border-slate-200 p-3">
+              <div className="text-sm font-black" style={{ color: theme.secondaryColor }}>{item.title}</div>
+              <div className="mt-1 text-xs font-semibold leading-5 text-slate-500">{item.desc}</div>
+            </div>
+          ))}
+        </div>
+        <div className="px-4 pb-4">
+          <div className="rounded p-3 text-xs font-bold text-white" style={{ backgroundColor: theme.secondaryColor }}>
+            {theme.footerDescription}
+          </div>
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -1945,15 +2262,15 @@ function Footer({ setView, theme }: { setView: (view: View) => void; theme: Site
       <div className="mx-auto grid max-w-[1480px] gap-8 px-4 py-10 sm:px-6 md:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr] lg:px-[10%]">
         <div>
           <div className="flex items-center gap-3">
-            <span className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] bg-gradient-to-br from-[#f25c2b] to-[#ff8a57] shadow-[0_3px_10px_rgba(242,92,43,.3)]">
+            <span className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] shadow-[0_3px_10px_rgba(242,92,43,.3)]" style={{ background: `linear-gradient(135deg, ${theme.primaryColor}, ${theme.accentColor})` }}>
               <Truck className="h-6 w-6 text-white" />
             </span>
             <div className="font-extrabold tracking-wide text-white">
-              CP<span className="text-[#f25c2b]">24H</span>
+              {theme.brandShortName}
             </div>
           </div>
           <p className="mt-4 max-w-[340px] text-[13.5px] leading-6">
-            Chuyển phát liên tỉnh siêu tốc, nhận hàng tận nơi, giao tận tay ngay trong ngày.
+            {theme.footerDescription}
           </p>
         </div>
         <div>
@@ -1969,18 +2286,18 @@ function Footer({ setView, theme }: { setView: (view: View) => void; theme: Site
           <h4 className="mb-4 mt-1 text-[13px] font-bold tracking-wide text-white">LIÊN HỆ</h4>
           <div className="grid gap-3 text-[13.5px]">
             <a href={footerPhoneHref} className="flex items-center gap-2 font-bold text-white">
-              <Phone className="h-4 w-4 text-[#f25c2b]" />
+              <Phone className="h-4 w-4" style={{ color: theme.primaryColor }} />
               {theme.hotline}
             </a>
             <span className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-[#f25c2b]" />
-              Hà Nội và các tỉnh phía Bắc
+              <MapPin className="h-4 w-4" style={{ color: theme.primaryColor }} />
+              {theme.footerLocation}
             </span>
           </div>
         </div>
       </div>
       <div className="border-t border-white/10 py-5 text-center text-[12.5px] text-[#7b8aa0]">
-        © 2026 Chuyển Phát 24H. Tất cả quyền được bảo lưu.
+        {theme.footerCopyright}
       </div>
     </footer>
   );
