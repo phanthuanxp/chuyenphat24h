@@ -18,15 +18,14 @@ import {
   X,
 } from "lucide-react";
 import { ITEM_TYPE_LABELS, ItemType } from "../lib/constants/enums";
+import type { SiteThemeSettings } from "../lib/theme/themeTypes";
 
 type View = "home" | "order" | "tracking" | "routes" | "pricing" | "policy" | "contact" | "admin" | "seo";
 
 type ThemeLandingProps = {
   setView: (view: View) => void;
+  theme: SiteThemeSettings;
 };
-
-const hotline = "0345 07 6789";
-const phoneHref = "tel:0345076789";
 
 const goodsTypes = [
   { name: "Giấy tờ, hồ sơ, hợp đồng", price: "Từ 25.000đ", icon: FileText },
@@ -104,9 +103,11 @@ const landingNavItems: Array<[string, View]> = [
   ["Liên hệ", "contact"],
 ];
 
-export function ThemeLanding({ setView }: ThemeLandingProps) {
+export function ThemeLanding({ setView, theme }: ThemeLandingProps) {
   const [selectedType, setSelectedType] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const themePhoneHref = `tel:${theme.hotline.replace(/\D/g, "")}`;
+  const primaryColor = theme.primaryColor;
   const selectedPrice = useMemo(
     () => goodsTypes.find((item) => item.name === selectedType)?.price || "Chọn loại hàng để xem giá",
     [selectedType],
@@ -124,7 +125,7 @@ export function ThemeLanding({ setView }: ThemeLandingProps) {
         className="relative min-h-[660px] overflow-hidden pb-24 text-white"
         style={{
           backgroundImage:
-            "linear-gradient(100deg, rgba(7,19,41,.96) 0%, rgba(7,19,41,.86) 26%, rgba(7,19,41,.40) 50%, rgba(7,19,41,.52) 74%, rgba(7,19,41,.92) 100%), url('/theme/banner-hero.png')",
+            `linear-gradient(100deg, rgba(7,19,41,.96) 0%, rgba(7,19,41,.86) 26%, rgba(7,19,41,.40) 50%, rgba(7,19,41,.52) 74%, rgba(7,19,41,.92) 100%), url('${theme.heroImageUrl}')`,
           backgroundPosition: "center 42%",
           backgroundSize: "cover",
         }}
@@ -132,9 +133,9 @@ export function ThemeLanding({ setView }: ThemeLandingProps) {
         <header className="relative z-30 border-b border-white/10">
           <div className="mx-auto flex h-[78px] max-w-[1480px] items-center px-4 sm:px-6 lg:px-[10%]">
             <button onClick={() => go("home")} className="mr-7 flex flex-none items-center gap-2 text-left">
-              <LogoMark />
+              <LogoMark theme={theme} />
               <span className="text-base font-extrabold tracking-wide text-white">
-                CP<span className="text-[#f25c2b]">24H</span>
+                {theme.brandShortName}
               </span>
             </button>
 
@@ -148,17 +149,18 @@ export function ThemeLanding({ setView }: ThemeLandingProps) {
 
             <div className="ml-auto flex flex-none items-center gap-3 lg:ml-3">
               <a
-                href={phoneHref}
+                href={themePhoneHref}
                 className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/10 transition hover:bg-white/15"
                 aria-label="Gọi hotline"
               >
-                <Phone className="h-4 w-4 text-[#f25c2b]" />
+                <Phone className="h-4 w-4" style={{ color: primaryColor }} />
               </a>
               <button
                 onClick={() => go("order")}
-                className="hidden rounded-lg bg-gradient-to-b from-[#f7723e] to-[#f25c2b] px-4 py-2 text-xs font-bold tracking-wide text-white shadow-[0_4px_14px_rgba(242,92,43,.32)] transition hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(242,92,43,.5)] sm:inline-flex"
+                className="hidden rounded-lg px-4 py-2 text-xs font-bold tracking-wide text-white shadow-[0_4px_14px_rgba(242,92,43,.32)] transition hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(242,92,43,.5)] sm:inline-flex"
+                style={{ background: `linear-gradient(180deg, ${theme.accentColor}, ${theme.primaryColor})` }}
               >
-                TẠO ĐƠN NGAY
+                {theme.ctaPrimary}
               </button>
               <button
                 onClick={() => setMobileOpen((open) => !open)}
@@ -191,8 +193,8 @@ export function ThemeLanding({ setView }: ThemeLandingProps) {
         <div className="relative mx-auto flex max-w-[1480px] flex-col gap-8 px-4 pt-12 sm:px-6 lg:flex-row lg:items-start lg:gap-10 lg:px-[10%] lg:pt-14">
           <div className="relative z-10 flex-1 pt-2 lg:max-w-[620px]">
             <h1 className="m-0 text-[34px] font-extrabold leading-[1.16] tracking-tight sm:text-[42px]">
-              Chuyển phát liên tỉnh siêu tốc, nhận hàng tận nơi,{" "}
-              <span className="text-[#f25c2b]">giao tận tay</span> ngay trong ngày
+              {theme.heroTitle}{" "}
+              <span style={{ color: primaryColor }}>{theme.heroHighlight}</span>
             </h1>
             <div className="mt-7 grid max-w-xl gap-x-6 gap-y-4 sm:grid-cols-2">
               {heroBenefits.map((benefit) => (
@@ -215,7 +217,7 @@ export function ThemeLanding({ setView }: ThemeLandingProps) {
               </span>
             </div>
             <p className="mb-5 text-[13px] leading-5 text-[#6c7889]">
-              Để lại thông tin, nhân viên gọi lại tư vấn và báo giá ngay.
+              {theme.heroSubtitle}
             </p>
 
             <div className="grid gap-3">
@@ -250,9 +252,10 @@ export function ThemeLanding({ setView }: ThemeLandingProps) {
             </p>
             <button
               onClick={() => go("order")}
-              className="flex h-[52px] w-full items-center justify-center gap-2 rounded-[11px] bg-gradient-to-b from-[#f7723e] to-[#f25c2b] text-base font-extrabold tracking-wide text-white shadow-[0_10px_22px_rgba(242,92,43,.32)]"
+              className="flex h-[52px] w-full items-center justify-center gap-2 rounded-[11px] text-base font-extrabold tracking-wide text-white shadow-[0_10px_22px_rgba(242,92,43,.32)]"
+              style={{ background: `linear-gradient(180deg, ${theme.accentColor}, ${theme.primaryColor})` }}
             >
-              TẠO ĐƠN NGAY
+              {theme.ctaPrimary}
               <ArrowRight className="h-5 w-5" />
             </button>
             <div className="mt-3 flex items-center justify-center gap-2 text-xs text-[#8794a5]">
@@ -302,11 +305,12 @@ export function ThemeLanding({ setView }: ThemeLandingProps) {
               <span><strong>Chưa có tuyến bạn cần?</strong> Liên hệ ngay, chúng tôi sẽ sắp xếp xe phù hợp nhất.</span>
             </div>
             <a
-              href={phoneHref}
-              className="flex items-center gap-2 rounded-full bg-gradient-to-b from-[#f7723e] to-[#f25c2b] px-6 py-3 text-[17px] font-extrabold text-white shadow-[0_8px_20px_rgba(242,92,43,.3)]"
+              href={themePhoneHref}
+              className="flex items-center gap-2 rounded-full px-6 py-3 text-[17px] font-extrabold text-white shadow-[0_8px_20px_rgba(242,92,43,.3)]"
+              style={{ background: `linear-gradient(180deg, ${theme.accentColor}, ${theme.primaryColor})` }}
             >
               <Phone className="h-5 w-5" />
-              {hotline}
+              {theme.hotline}
             </a>
           </div>
         </div>
@@ -398,17 +402,18 @@ export function ThemeLanding({ setView }: ThemeLandingProps) {
               </div>
             </div>
             <a
-              href={phoneHref}
-              className="flex items-center gap-3 rounded-full bg-gradient-to-b from-[#f7723e] to-[#f25c2b] px-7 py-4 text-[22px] font-extrabold text-white shadow-[0_10px_26px_rgba(242,92,43,.38)]"
+              href={themePhoneHref}
+              className="flex items-center gap-3 rounded-full px-7 py-4 text-[22px] font-extrabold text-white shadow-[0_10px_26px_rgba(242,92,43,.38)]"
+              style={{ background: `linear-gradient(180deg, ${theme.accentColor}, ${theme.primaryColor})` }}
             >
               <Phone className="h-6 w-6" />
-              {hotline}
+              {theme.hotline}
             </a>
           </div>
         </div>
       </section>
 
-      <ThemeFooter go={go} />
+      <ThemeFooter go={go} theme={theme} />
     </div>
   );
 }
@@ -424,9 +429,9 @@ function NavButton({ active, children, onClick }: { active?: boolean; children: 
   );
 }
 
-function LogoMark() {
+function LogoMark({ theme }: { theme: SiteThemeSettings }) {
   return (
-    <span className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] bg-gradient-to-br from-[#f25c2b] to-[#ff8a57] shadow-[0_3px_10px_rgba(242,92,43,.3)]">
+    <span className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] shadow-[0_3px_10px_rgba(242,92,43,.3)]" style={{ background: `linear-gradient(135deg, ${theme.primaryColor}, ${theme.accentColor})` }}>
       <Truck className="h-6 w-6 text-white" />
     </span>
   );
@@ -474,20 +479,21 @@ function DriverInfo({ icon: Icon, label, value }: { icon: React.ElementType; lab
   );
 }
 
-function ThemeFooter({ go }: { go: (view: View) => void }) {
+function ThemeFooter({ go, theme }: { go: (view: View) => void; theme: SiteThemeSettings }) {
+  const footerPhoneHref = `tel:${theme.hotline.replace(/\D/g, "")}`;
   return (
-    <footer className="bg-[#081730] pt-12 text-[#aebbcd]">
+    <footer className="pt-12 text-[#aebbcd]" style={{ backgroundColor: theme.secondaryColor }}>
       <div className="mx-auto grid max-w-[1480px] gap-8 px-4 sm:px-6 md:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1.2fr_1fr] lg:px-[10%]">
         <div>
           <div className="mb-4 flex items-center gap-3">
-            <LogoMark />
+            <LogoMark theme={theme} />
             <div className="flex flex-col leading-none">
-              <span className="text-[17px] font-extrabold tracking-wide text-white">CHUYỂN PHÁT</span>
-              <span className="text-[17px] font-extrabold tracking-wide text-[#f25c2b]">24H</span>
+              <span className="text-[17px] font-extrabold tracking-wide text-white">{theme.brandName}</span>
+              <span className="text-[13px] font-semibold tracking-wide" style={{ color: theme.primaryColor }}>{theme.tagline}</span>
             </div>
           </div>
           <p className="max-w-[280px] text-[13.5px] leading-6">
-            Chuyển phát liên tỉnh siêu tốc, nhận hàng tận nơi, giao tận tay ngay trong ngày.
+            {theme.footerDescription}
           </p>
         </div>
         <FooterColumn title="DỊCH VỤ" items={[["Tạo đơn hàng", "order"], ["Tuyến chuyển phát", "routes"], ["Bảng giá", "pricing"], ["Tra cứu đơn", "tracking"]]} go={go} />
@@ -495,9 +501,9 @@ function ThemeFooter({ go }: { go: (view: View) => void }) {
         <div>
           <h4 className="mb-4 mt-1 text-[13px] font-bold tracking-wide text-white">LIÊN HỆ</h4>
           <div className="grid gap-3 text-[13.5px]">
-            <a href={phoneHref} className="flex items-center gap-2 text-white">
-              <Phone className="h-4 w-4 text-[#f25c2b]" />
-              {hotline}
+            <a href={footerPhoneHref} className="flex items-center gap-2 text-white">
+              <Phone className="h-4 w-4" style={{ color: theme.primaryColor }} />
+              {theme.hotline}
             </a>
             <span className="flex items-center gap-2">
               <MapPin className="h-4 w-4 text-[#f25c2b]" />
