@@ -4,9 +4,7 @@ import { mapsService } from "../maps/mapsService";
 import { classifyRouteGroup } from "../maps/routeClassifier";
 import { estimatePrice, isManualQuoteRequired } from "../pricing/pricingService";
 import { createOrder } from "./orderService";
-import { suggestZaloGroups } from "../dispatch/aiDispatchService";
-import { notifyTelegramNewOrder, notifyVehicleSearchStarted } from "../notification/notificationService";
-import { createDriverCandidateFromPartner, findNearestVehicleForOrder } from "../partners/nearestVehicleService";
+import { notifyTelegramNewOrder, notifyZaloAdminNewOrder } from "../notification/notificationService";
 
 export function generateOrderCode() {
   const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -132,29 +130,19 @@ export async function createQuickOrderFromHomeForm(payload: QuickOrderPayload) {
     paymentStatus: "UNPAID",
     manualQuoteRequired: true,
     status: OrderStatus.PENDING_CONFIRMATION,
-    dispatchStatus: DispatchStatus.READY_TO_DISPATCH,
+    dispatchStatus: DispatchStatus.NOT_DISPATCHED,
     suggestedZaloGroups: [],
     assignedZaloGroupIds: [],
     driverCandidates: [],
-    internalNotes: `Gia tren website chi la gia de xuat: ${price.finalPrice.toLocaleString("vi-VN")}d. Admin/Telegram bot can duyet gia cuoi va xe nhan don.`,
-    customerTrackingNote: "Don da duoc tiep nhan. Gia cuoc tren website la gia de xuat, dieu hanh se xac nhan gia chinh thuc va thong tin xe qua Zalo.",
+    internalNotes: `Gia tren website chi la gia de xuat: ${price.finalPrice.toLocaleString("vi-VN")}d. Admin se bao gia/chot lich va gui thong tin xe cho khach qua Zalo.`,
+    customerTrackingNote: "Don da duoc tiep nhan. Dieu hanh se xac nhan gia chinh thuc va thong tin xe qua Zalo.",
     timeline: [
       {
         id: `TL-${Date.now()}`,
         orderId: "pending",
         eventType: "CREATED",
         title: "Da tiep nhan yeu cau gui hang",
-        description: "He thong da nhan don va gui ve bot Telegram cho dieu hanh duyet gia.",
-        visibility: Visibility.PUBLIC_CUSTOMER,
-        createdBy: "system",
-        createdAt: now,
-      },
-      {
-        id: `TL-${Date.now()}-SEARCH`,
-        orderId: "pending",
-        eventType: "VEHICLE_SEARCH_STARTED",
-        title: "Dang tim xe gan nhat",
-        description: "He thong dang tim doi tac phu hop gan tuyen van chuyen.",
+        description: "He thong da nhan don va gui ve kenh Zalo admin de dieu hanh bao gia.",
         visibility: Visibility.PUBLIC_CUSTOMER,
         createdBy: "system",
         createdAt: now,
@@ -167,13 +155,8 @@ export async function createQuickOrderFromHomeForm(payload: QuickOrderPayload) {
   };
 
   order.timeline = order.timeline.map((event) => ({ ...event, orderId: order.id }));
-  order.suggestedZaloGroups = suggestZaloGroups(order).map((group) => group.id);
-  const nearestVehicle = findNearestVehicleForOrder(order);
-  if (nearestVehicle) {
-    order.driverCandidates = [createDriverCandidateFromPartner(nearestVehicle)];
-  }
   const createdOrder = createOrder(order);
+  await notifyZaloAdminNewOrder(createdOrder);
   await notifyTelegramNewOrder(createdOrder);
-  notifyVehicleSearchStarted(createdOrder);
   return createdOrder;
 }

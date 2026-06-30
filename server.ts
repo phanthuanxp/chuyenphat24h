@@ -11,6 +11,7 @@ import { getPublicTrackingInfo } from "./src/lib/tracking/trackingService";
 import { addDispatchPreviewLog, getDispatchLogs, hydrateDispatchStorage, sendOrderToZaloGroups } from "./src/lib/dispatch/dispatchService";
 import { parseDriverCommand } from "./src/lib/zalo/botCommandParser";
 import { getZaloGroups } from "./src/lib/zalo/zaloGroupService";
+import { handleZaloAdminCommand, handleZaloCustomerReply } from "./src/lib/zalo/zaloWorkflowService";
 import { getPartnerApplications, createPartnerApplication, hydratePartnerStorage } from "./src/lib/partners/driverPartnerService";
 import { createDriverCandidateFromPartner, findNearestVehicleForOrder } from "./src/lib/partners/nearestVehicleService";
 import { getNotificationLogs, getNotificationRuntimeStatus, hydrateNotificationStorage, logTelegramCommand, mockSendCustomerZaloOrderApproved, mockSendCustomerZaloVehicleAssigned } from "./src/lib/notification/notificationService";
@@ -493,6 +494,43 @@ function requireAdmin(req: Request, res: Response, next: () => void) {
   next();
 }
 
+function extractZaloWebhookText(body: Record<string, unknown>) {
+  const message = body.message as Record<string, unknown> | undefined;
+  const event = body.event as Record<string, unknown> | undefined;
+  return String(
+    body.text ||
+    body.commandText ||
+    message?.text ||
+    event?.text ||
+    (message?.message as Record<string, unknown> | undefined)?.text ||
+    "",
+  ).trim();
+}
+
+function extractZaloSender(body: Record<string, unknown>) {
+  const sender = body.sender as Record<string, unknown> | undefined;
+  const message = body.message as Record<string, unknown> | undefined;
+  const event = body.event as Record<string, unknown> | undefined;
+  return String(
+    body.senderId ||
+    body.user_id ||
+    sender?.id ||
+    sender?.user_id ||
+    message?.from ||
+    event?.user_id ||
+    body.phone ||
+    "",
+  ).trim();
+}
+
+function isZaloAdminSender(sender: string) {
+  const ids = String(process.env.ZALO_ADMIN_USER_IDS || process.env.ZALO_ADMIN_USER_ID || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return ids.length ? ids.includes(sender) : false;
+}
+
 function asyncHandler<TReq extends Request = Request>(
   handler: (req: TReq, res: Response) => Promise<unknown>,
 ) {
@@ -680,6 +718,30 @@ app.post("/api/telegram/webhook", (req, res) => {
 
   return res.status(400).json({ message: "Unsupported Telegram command" });
 });
+
+app.post("/api/zalo/webhook", asyncHandler(async (req, res) => {
+  const expectedSecret = process.env.ZALO_WEBHOOK_SECRET;
+  const receivedSecret = String(req.query.secret || req.headers["x-zalo-webhook-secret"] || "");
+  if (expectedSecret && expectedSecret !== receivedSecret) {
+    return res.status(401).json({ message: "Invalid Zalo webhook secret" });
+  }
+
+  const text = extractZaloWebhookText(req.body);
+  const sender = extractZaloSender(req.body);
+  if (!text) return res.status(400).json({ message: "Missing Zalo message text" });
+
+  const isAdmin = isZaloAdminSender(sender) || req.body.role === "admin" || req.body.isAdmin === true;
+  const result = isAdmin
+    ? await handleZaloAdminCommand(text, sender || "zalo-admin")
+    : await handleZaloCustomerReply(text, sender || "zalo-customer");
+  res.json({ ok: result.ok, sender, isAdmin, ...result });
+}));
+
+app.post("/api/zalo/admin-command", requireAdmin, asyncHandler(async (req, res) => {
+  const text = String(req.body.commandText || req.body.text || "").trim();
+  if (!text) return res.status(400).json({ message: "Missing commandText" });
+  res.json(await handleZaloAdminCommand(text, "admincp-test"));
+}));
 
 app.get("/api/admin/summary", requireAdmin, (_req, res) => {
   const orders = getOrders();

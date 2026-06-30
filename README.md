@@ -67,7 +67,11 @@ Quan trong nhat trong MVP:
 - `ZALO_APP_ID=`
 - `ZALO_APP_SECRET=`
 - `ZALO_WEBHOOK_SECRET=`
-- `ZALO_CUSTOMER_NOTIFY_MODE=mock`
+- `ZALO_NOTIFY_MODE=mock`
+- `ZALO_SEND_MESSAGE_ENDPOINT=`
+- `ZALO_ACCESS_TOKEN=`
+- `ZALO_ADMIN_USER_ID=`
+- `ZALO_ADMIN_USER_IDS=`
 - `ADMIN_USERNAME=admin`
 - `ADMIN_PASSWORD=...`
 - `ADMIN_SESSION_SECRET=...`
@@ -93,18 +97,39 @@ Khong dua `.env` that vao git.
 2. Frontend goi API noi bo de autocomplete dia chi mock Maps.
 3. API phan tuyen, tinh khoang cach mock va tao `quotedPrice` la gia de xuat.
 4. Don duoc luu vao PostgreSQL production neu co `DATABASE_URL`, fallback JSON storage neu chua cau hinh DB, kem anh san pham va co `orderCode`.
-5. He thong gui Telegram admin neu da cau hinh token/chat id, dong thoi tao notification log va bat dau goi y xe gan nhat.
-6. Admin duyet gia cuoi trong AdminCP hoac qua Telegram webhook mock: `DUYET CP24H-xxxx 250000`.
-7. Sau khi duyet, he thong tao log gui Zalo khach ve gia chinh thuc.
-8. Admin bam tim/giao xe gan nhat hoac Telegram `TIMXE CP24H-xxxx`; he thong gan xe va tao log gui Zalo khach.
-9. Khach tra cuu public bang ma don va so dien thoai.
+5. He thong gui lead moi ve kenh Zalo admin, dong thoi tao notification log.
+6. Admin thao tac tren Zalo de bao gia/chot lich: `GIA CP24H-xxxx 250000 14h hom nay`.
+7. He thong gui bao gia va lich lay hang qua Zalo cho khach.
+8. Khach xac nhan tren Zalo bang cu phap `DONG Y CP24H-xxxx`.
+9. Admin dieu phoi xe ben ngoai, sau do gui thong tin xe qua Zalo: `XE CP24H-xxxx Nha xe ABC - 098xxxxxxx - xe tai nho - 15h30`.
+10. Khach tra cuu public bang ma don va so dien thoai neu can.
 
-## Telegram/Zalo workflow
+## Zalo-first workflow
 
-- `POST /api/telegram/webhook?secret=...` nhan lenh `DUYET`, `GIA`, `TIMXE`.
+- `POST /api/zalo/webhook?secret=...` nhan tin nhan webhook tu Zalo OA.
+- Neu `senderId` nam trong `ZALO_ADMIN_USER_IDS`, he thong xu ly nhu lenh admin.
+- Neu khong phai admin, he thong xu ly nhu phan hoi cua khach.
+- `POST /api/zalo/admin-command` dung de test lenh Zalo trong noi bo khi da dang nhap AdminCP.
 - `GET /api/notification/logs` trong AdminCP/API tra ve log Telegram/Zalo.
-- Khi set `TELEGRAM_BOT_TOKEN` va `TELEGRAM_ADMIN_CHAT_ID`, don moi se gui Telegram admin that. Neu thieu cau hinh, he thong fallback mock va van ghi log.
-- Zalo customer hien van la mock log, cho den khi co Zalo OA/API production.
+
+Lenh Zalo admin:
+
+- `HELP` xem huong dan.
+- `MOI` xem lead moi.
+- `CT CP24H-xxxx` xem chi tiet don.
+- `GIA CP24H-xxxx 250000 14h hom nay` gui bao gia va lich lay hang cho khach.
+- `OK CP24H-xxxx` danh dau khach da xac nhan neu admin can ghi nhan thu cong.
+- `XE CP24H-xxxx <thong tin xe>` gui thong tin xe van chuyen cho khach.
+- `NOTE CP24H-xxxx <ghi chu>` them ghi chu noi bo.
+- `HUY CP24H-xxxx <ly do>` huy don.
+
+Ket noi Zalo thuc:
+
+- Mac dinh `ZALO_NOTIFY_MODE=mock`, he thong ghi log va khong goi API Zalo that.
+- Khi co Zalo OA/API production, set `ZALO_NOTIFY_MODE=live`, `ZALO_SEND_MESSAGE_ENDPOINT`, `ZALO_ACCESS_TOKEN`, `ZALO_ADMIN_USER_IDS`.
+- `ZALO_WEBHOOK_SECRET` dung de bao ve webhook tren domain live.
+
+Telegram van co the giu lam kenh du phong, nhung workflow chinh la Zalo.
 
 ## Ghi chu production
 
@@ -117,7 +142,7 @@ Du lieu production:
 Phan dang mock:
 
 - Maps API thuc.
-- Zalo OA/group integration thuc.
+- Zalo OA send-message endpoint/token thuc neu chua cau hinh.
 - Logging/monitoring.
 
 Ban hien tai da co AdminCP login bang env va PostgreSQL production storage neu VPS set `DATABASE_URL`. Truoc khi van hanh lon can noi provider Maps server-side, webhook Zalo neu API ho tro va giam sat loi runtime.
