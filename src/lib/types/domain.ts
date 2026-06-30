@@ -204,8 +204,8 @@ export interface BotCommandLog {
 
 export interface NotificationLog {
   id: string;
-  channel: "TELEGRAM_ADMIN" | "ZALO_CUSTOMER" | "SYSTEM";
-  eventType: "NEW_ORDER" | "ORDER_APPROVED" | "VEHICLE_SEARCH_STARTED" | "VEHICLE_ASSIGNED" | "TELEGRAM_COMMAND";
+  channel: "TELEGRAM_ADMIN" | "ZALO_ADMIN" | "ZALO_CUSTOMER" | "SYSTEM";
+  eventType: "NEW_ORDER" | "ORDER_QUOTED" | "CUSTOMER_CONFIRMED" | "ORDER_APPROVED" | "VEHICLE_SEARCH_STARTED" | "VEHICLE_ASSIGNED" | "TELEGRAM_COMMAND" | "ZALO_ADMIN_COMMAND" | "ZALO_CUSTOMER_REPLY";
   orderId?: string;
   orderCode?: string;
   recipient?: string;
