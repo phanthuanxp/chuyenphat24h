@@ -78,13 +78,30 @@ function normalizeGoodsList(value: unknown, fallback: ThemeGoodsItem[]) {
   return next.length ? next : fallback;
 }
 
+function migrateLegacyPalette(settings: Partial<SiteThemeSettings>) {
+  if (
+    settings.primaryColor === "#f25c2b" &&
+    settings.secondaryColor === "#0c2349" &&
+    settings.accentColor === "#22a06b"
+  ) {
+    return {
+      ...settings,
+      primaryColor: defaultThemeSettings.primaryColor,
+      secondaryColor: defaultThemeSettings.secondaryColor,
+      accentColor: defaultThemeSettings.accentColor,
+    };
+  }
+  return settings;
+}
+
 function mergeWithDefaults(settings: Partial<SiteThemeSettings>) {
+  const migrated = migrateLegacyPalette(settings);
   return {
     ...defaultThemeSettings,
-    ...settings,
+    ...migrated,
     sectionVisibility: {
       ...defaultThemeSettings.sectionVisibility,
-      ...(settings.sectionVisibility || {}),
+      ...(migrated.sectionVisibility || {}),
     },
   };
 }
