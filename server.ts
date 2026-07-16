@@ -47,7 +47,7 @@ const editableOrderNumberFields = ["packageCount", "weight", "quotedPrice", "fin
 app.use(express.json({ limit: "10mb" }));
 
 function siteUrl() {
-  return String(process.env.SITE_URL || "https://chuyenphat24h.com").replace(/\/+$/, "");
+  return String(process.env.SITE_URL || process.env.PUBLIC_APP_URL || "https://chuyenphat24h.com").replace(/\/+$/, "");
 }
 
 function absoluteUrl(pathname = "/") {
@@ -77,11 +77,11 @@ function normalizePathname(rawPath = "/") {
 function findSeoMeta(rawPath: string) {
   const pathname = normalizePathname(rawPath);
   const routeMeta = mainSeoRoutes.find((item) => item.path === pathname);
-  if (routeMeta) return { ...routeMeta, path: pathname, h1: routeMeta.title };
+  if (routeMeta) return { ...routeMeta, path: pathname, h1: routeMeta.title, isIndexable: true };
 
   const slug = pathname.replace(/^\//, "");
   const seoPage = getSeoPages().find((item) => item.slug === slug);
-  if (seoPage) return { ...seoPage, path: `/${seoPage.slug}` };
+  if (seoPage) return { ...seoPage, path: `/${seoPage.slug}`, isIndexable: true };
 
   return {
     path: pathname,
@@ -90,6 +90,7 @@ function findSeoMeta(rawPath: string) {
     h1: "Chuyển Phát 24H",
     priority: 0.5,
     changefreq: "weekly" as const,
+    isIndexable: false,
   };
 }
 
@@ -148,25 +149,56 @@ function buildWebsiteSchema() {
   };
 }
 
+function buildBreadcrumbSchema(meta: ReturnType<typeof findSeoMeta>) {
+  const items = [
+    {
+      "@type": "ListItem",
+      position: 1,
+      name: getThemeSettings().brandName,
+      item: absoluteUrl("/"),
+    },
+  ];
+
+  if (meta.path !== "/") {
+    items.push({
+      "@type": "ListItem",
+      position: 2,
+      name: meta.h1,
+      item: absoluteUrl(meta.path),
+    });
+  }
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items,
+  };
+}
+
 function renderSeoHtml(template: string, requestPath: string) {
   const meta = findSeoMeta(requestPath);
   const canonicalUrl = absoluteUrl(meta.path);
   const theme = getThemeSettings();
   const imageUrl = absoluteUrl(theme.heroImageUrl);
-  const schema = meta.path === "/"
-    ? [buildOrganizationSchema(), buildWebsiteSchema()]
-    : [buildOrganizationSchema(), buildServiceSchema(meta)];
+  const schema = !meta.isIndexable
+    ? []
+    : meta.path === "/"
+      ? [buildOrganizationSchema(), buildWebsiteSchema()]
+      : [buildOrganizationSchema(), buildServiceSchema(meta), buildBreadcrumbSchema(meta)];
   const metaTags = [
     `<title>${escapeHtml(meta.title)}</title>`,
     `<meta name="description" content="${escapeHtml(meta.description)}" />`,
-    `<meta name="robots" content="${meta.path === "/admincp" ? "noindex,nofollow" : "index,follow"}" />`,
+    `<meta name="robots" content="${meta.isIndexable ? "index,follow" : "noindex,nofollow"}" />`,
     `<link rel="canonical" href="${escapeHtml(canonicalUrl)}" />`,
+    `<link rel="alternate" hreflang="vi-VN" href="${escapeHtml(canonicalUrl)}" />`,
+    `<meta property="og:locale" content="vi_VN" />`,
     `<meta property="og:site_name" content="${escapeHtml(theme.brandName)}" />`,
-    `<meta property="og:type" content="${meta.path === "/" ? "website" : "article"}" />`,
+    `<meta property="og:type" content="website" />`,
     `<meta property="og:title" content="${escapeHtml(meta.title)}" />`,
     `<meta property="og:description" content="${escapeHtml(meta.description)}" />`,
     `<meta property="og:url" content="${escapeHtml(canonicalUrl)}" />`,
     `<meta property="og:image" content="${escapeHtml(imageUrl)}" />`,
+    `<meta property="og:image:alt" content="${escapeHtml(theme.brandName)}" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${escapeHtml(meta.title)}" />`,
     `<meta name="twitter:description" content="${escapeHtml(meta.description)}" />`,
@@ -897,9 +929,20 @@ async function setupApp() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: "spa",
+      appType: "custom",
     });
     app.use(vite.middlewares);
+    app.get("*", async (req, res, next) => {
+      try {
+        const templatePath = path.join(process.cwd(), "index.html");
+        const template = fs.readFileSync(templatePath, "utf8");
+        const transformedTemplate = await vite.transformIndexHtml(req.originalUrl, template);
+        res.type("html").send(renderSeoHtml(transformedTemplate, req.path));
+      } catch (error) {
+        vite.ssrFixStacktrace(error as Error);
+        next(error);
+      }
+    });
   } else {
     const distPath = path.join(process.cwd(), "dist");
     const indexHtmlPath = path.join(distPath, "index.html");

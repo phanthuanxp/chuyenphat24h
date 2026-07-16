@@ -1,2 +1,81 @@
 @import url("https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
+
+:root {
+  --brand-navy-900: #0b1f3a;
+  --brand-navy-800: #102a43;
+  --brand-navy-700: #173b63;
+  --brand-orange-500: #f97316;
+  --brand-orange-600: #ea580c;
+  --brand-orange-700: #c2410c;
+  --route-blue: #38bdf8;
+  --background: #ffffff;
+  --background-subtle: #f5f7fa;
+  --background-muted: #eef2f6;
+  --surface: #ffffff;
+  --text-primary: #111827;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-on-dark: #ffffff;
+  --border-light: #dce3ea;
+  --border-default: #cbd5e1;
+  --success: #15803d;
+  --warning: #b45309;
+  --error: #b91c1c;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --shadow-sm: 0 1px 3px rgb(11 31 58 / 8%);
+  --shadow-md: 0 8px 24px rgb(11 31 58 / 10%);
+  --shadow-lg: 0 20px 50px rgb(11 31 58 / 14%);
+}
+
+@theme inline {
+  --color-brand-navy-900: var(--brand-navy-900);
+  --color-brand-navy-800: var(--brand-navy-800);
+  --color-brand-navy-700: var(--brand-navy-700);
+  --color-brand-orange-500: var(--brand-orange-500);
+  --color-brand-orange-600: var(--brand-orange-600);
+  --color-route-blue: var(--route-blue);
+  --color-surface-subtle: var(--background-subtle);
+  --color-surface-muted: var(--background-muted);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-width: 320px;
+    background: var(--background);
+    color: var(--text-primary);
+    font-family: "Be Vietnam Pro", Arial, Helvetica, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--route-blue);
+    outline-offset: 3px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

@@ -80,9 +80,8 @@ function normalizeGoodsList(value: unknown, fallback: ThemeGoodsItem[]) {
 
 function migrateLegacyPalette(settings: Partial<SiteThemeSettings>) {
   if (
-    settings.primaryColor === "#f25c2b" &&
-    settings.secondaryColor === "#0c2349" &&
-    settings.accentColor === "#22a06b"
+    (settings.primaryColor === "#f25c2b" && settings.secondaryColor === "#0c2349" && settings.accentColor === "#22a06b") ||
+    (settings.primaryColor === "#e30613" && settings.secondaryColor === "#003b73" && settings.accentColor === "#0057b8")
   ) {
     return {
       ...settings,

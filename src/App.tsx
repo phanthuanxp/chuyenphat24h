@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -35,10 +35,12 @@ import {
 import { ITEM_TYPE_LABELS, ItemType, OrderStatus, STATUS_LABELS } from "./lib/constants/enums";
 import type { MapsAddress, Order, PublicTrackingInfo, RouteEstimate } from "./lib/types";
 import { ThemeLanding } from "./components/ThemeLanding";
+import { BrandLogo } from "./components/BrandLogo";
 import { defaultThemeSettings, SiteThemeSettings } from "./lib/theme/themeTypes";
-import { seoPages as defaultSeoPages, type SeoPage as SeoPageConfig } from "./lib/seo/seoPages";
+import { mainSeoRoutes, seoPages as defaultSeoPages, type SeoPage as SeoPageConfig } from "./lib/seo/seoPages";
+import { publicPathFor, publicRoutePaths, type PublicView } from "./lib/siteNavigation";
 
-type View = "home" | "order" | "tracking" | "routes" | "pricing" | "policy" | "contact" | "admin" | "seo";
+type View = PublicView | "admin" | "seo";
 type AdminModule = "dashboard" | "orders" | "dispatch" | "zalo" | "routes" | "partners" | "customers" | "pricing" | "seo" | "theme" | "settings";
 type AdminOrderEditPayload = Partial<
   Pick<
@@ -65,7 +67,7 @@ const hotline = "0345 07 6789";
 const heroImage =
   "https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?auto=format&fit=crop&w=1400&q=80";
 
-const navItems: Array<{ view: View; label: string }> = [
+const navItems: Array<{ view: PublicView; label: string }> = [
   { view: "home", label: "Trang chủ" },
   { view: "order", label: "Tạo đơn" },
   { view: "tracking", label: "Tra cứu" },
@@ -93,14 +95,15 @@ adminModules.splice(adminModules.length - 1, 0, { id: "theme", label: "Theme web
 const adminOrderStatusOptions = Array.from(new Set(Object.values(OrderStatus)));
 const phoneHref = "tel:0345076789";
 const viewPathMap: Record<string, View> = {
-  "/": "home",
-  "/tao-don": "order",
-  "/tra-cuu": "tracking",
-  "/tuyen-chuyen-phat": "routes",
-  "/bang-gia": "pricing",
-  "/chinh-sach": "policy",
-  "/lien-he": "contact",
+  ...Object.fromEntries(Object.entries(publicRoutePaths).map(([view, path]) => [path, view as PublicView])),
+  "/admincp": "admin",
 };
+
+function pathForView(view: View) {
+  if (view === "admin") return "/admincp";
+  if (view === "seo") return window.location.pathname;
+  return publicPathFor(view);
+}
 
 function getInitialView(): View {
   if (window.location.pathname === "/admincp") {
@@ -117,6 +120,26 @@ function App() {
   const [seoPageList, setSeoPageList] = useState<SeoPageConfig[]>(defaultSeoPages);
   const usesThemeLanding = view === "home";
   const usesPublicChrome = view !== "home" && view !== "admin";
+
+  const navigateTo = useCallback((nextView: View) => {
+    const nextPath = pathForView(nextView);
+    if (nextPath !== window.location.pathname) {
+      window.history.pushState({}, "", nextPath);
+    }
+    setView(nextView);
+    setMobileOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  useEffect(() => {
+    const syncViewWithLocation = () => {
+      setView(getInitialView());
+      setMobileOpen(false);
+      window.scrollTo({ top: 0, behavior: "auto" });
+    };
+    window.addEventListener("popstate", syncViewWithLocation);
+    return () => window.removeEventListener("popstate", syncViewWithLocation);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -153,6 +176,7 @@ function App() {
 
   useEffect(() => {
     const currentSeoPage = seoPageList.find((page) => `/${page.slug}` === window.location.pathname);
+    const currentMainSeoRoute = mainSeoRoutes.find((page) => page.path === window.location.pathname);
     const pageTitles: Record<View, string> = {
       home: `${themeSettings.brandName} - Chuyển phát hỏa tốc liên tỉnh`,
       order: `Tạo đơn chuyển phát - ${themeSettings.brandName}`,
@@ -165,11 +189,29 @@ function App() {
       seo: currentSeoPage?.title || `${themeSettings.brandName} - Chuyển phát hỏa tốc liên tỉnh`,
     };
     document.title = pageTitles[view];
+
+    const description = currentSeoPage?.description || currentMainSeoRoute?.description || "Chuyen Phat 24H nhan hang tan noi va giao tan tay theo tuyen xe lien tinh.";
+    let descriptionTag = document.querySelector('meta[name="description"]');
+    if (!descriptionTag) {
+      descriptionTag = document.createElement("meta");
+      descriptionTag.setAttribute("name", "description");
+      document.head.appendChild(descriptionTag);
+    }
+    descriptionTag.setAttribute("content", description);
+
+    const canonicalPath = view === "seo" ? window.location.pathname : pathForView(view);
+    let canonicalTag = document.querySelector('link[rel="canonical"]');
+    if (!canonicalTag) {
+      canonicalTag = document.createElement("link");
+      canonicalTag.setAttribute("rel", "canonical");
+      document.head.appendChild(canonicalTag);
+    }
+    canonicalTag.setAttribute("href", `${window.location.origin}${canonicalPath}`);
   }, [seoPageList, themeSettings.brandName, view]);
 
   return (
     <div
-      className="min-h-screen bg-[#f6f8fb] text-slate-950"
+      className="min-h-screen bg-[#F5F7FA] text-slate-950"
       style={{
         fontFamily: "'Be Vietnam Pro', system-ui, sans-serif",
         "--cp24h-primary": themeSettings.primaryColor,
@@ -181,17 +223,12 @@ function App() {
         <Header
           view={view}
           theme={themeSettings}
-          setView={(next) => {
-            setView(next);
-            setMobileOpen(false);
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
           mobileOpen={mobileOpen}
           setMobileOpen={setMobileOpen}
         />
       )}
       <main>
-        {view === "home" && <ThemeLanding setView={setView} theme={themeSettings} />}
+        {view === "home" && <ThemeLanding theme={themeSettings} />}
         {view === "order" && <OrderPage />}
         {view === "tracking" && <TrackingPage />}
         {view === "routes" && <RoutesPage />}
@@ -199,9 +236,9 @@ function App() {
         {view === "policy" && <PolicyPage />}
         {view === "contact" && <ContactPage />}
         {view === "admin" && <AdminPage theme={themeSettings} onThemeChange={setThemeSettings} seoPages={seoPageList} onSeoPagesChange={setSeoPageList} />}
-        {view === "seo" && <SeoPage setView={setView} seoPages={seoPageList} />}
+        {view === "seo" && <SeoPage setView={navigateTo} seoPages={seoPageList} />}
       </main>
-      {usesPublicChrome && <Footer setView={setView} theme={themeSettings} />}
+      {usesPublicChrome && <Footer theme={themeSettings} />}
     </div>
   );
 }
@@ -209,65 +246,56 @@ function App() {
 function Header({
   view,
   theme,
-  setView,
   mobileOpen,
   setMobileOpen,
 }: {
   view: View;
   theme: SiteThemeSettings;
-  setView: (view: View) => void;
   mobileOpen: boolean;
   setMobileOpen: (open: boolean) => void;
 }) {
   const themedPhoneHref = `tel:${theme.hotline.replace(/\D/g, "")}`;
-  const ctaGradient = `linear-gradient(180deg, #ff1b24, ${theme.primaryColor})`;
   return (
-    <header className="sticky top-0 z-50 border-b border-white/10 text-white shadow-[0_10px_30px_rgba(7,19,41,.18)] backdrop-blur" style={{ backgroundColor: `${theme.secondaryColor}f2` }}>
+    <header className="sticky top-0 z-50 border-b border-[var(--border-light)] bg-white/95 text-brand-navy-900 shadow-[var(--shadow-sm)] backdrop-blur">
       <div className="mx-auto flex h-[78px] max-w-[1480px] items-center px-4 sm:px-6 lg:px-[10%]">
-        <button className="mr-7 flex flex-none items-center gap-2 text-left" onClick={() => setView("home")}>
-          <span className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] shadow-[0_6px_16px_rgba(0,87,184,.22)]" style={{ background: `linear-gradient(135deg, ${theme.accentColor}, ${theme.secondaryColor})` }}>
-            <Truck className="h-6 w-6 text-white" />
-          </span>
-          <span className="text-left">
-            <span className="block text-base font-extrabold tracking-wide text-white">{theme.brandShortName}</span>
-            <span className="hidden text-xs font-semibold text-[#aebbcd] sm:block">{theme.tagline}</span>
-          </span>
-        </button>
+        <a className="mr-5 flex min-w-0 flex-none items-center text-left" href={publicPathFor("home")} aria-label="Trang chu Chuyen Phat 24H">
+          <BrandLogo showTagline />
+        </a>
 
         <nav className="hidden min-w-0 flex-1 items-center gap-1 text-[13px] font-medium lg:flex">
           {navItems.map((item) => (
-            <button
+            <a
               key={item.view}
-              onClick={() => setView(item.view)}
-              className={`rounded-md px-2.5 py-1.5 transition ${view === item.view ? "font-bold text-white" : "text-[#d0daea] hover:bg-white/10 hover:text-white"}`}
-              style={view === item.view ? { backgroundColor: `${theme.primaryColor}33` } : undefined}
+              href={publicPathFor(item.view)}
+              className={`rounded-md border-b-2 px-2.5 py-1.5 transition hover:text-brand-orange-600 ${view === item.view ? "border-brand-orange-500 font-bold text-brand-navy-900" : "border-transparent text-slate-600"}`}
+              aria-current={view === item.view ? "page" : undefined}
             >
               {item.label}
-            </button>
+            </a>
           ))}
         </nav>
 
         <div className="ml-auto hidden flex-none items-center gap-3 lg:flex">
-          <a className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/10 transition hover:bg-white/15" href={themedPhoneHref} aria-label="Gọi hotline">
+          <a className="flex h-11 w-11 items-center justify-center rounded-lg border border-[var(--border-light)] bg-white transition hover:border-brand-orange-500" href={themedPhoneHref} aria-label="Gọi hotline">
             <Phone className="h-4 w-4" style={{ color: theme.primaryColor }} />
           </a>
-          <button onClick={() => setView("order")} className="rounded-lg px-4 py-2 text-xs font-bold tracking-wide text-white shadow-[0_8px_20px_rgba(227,6,19,.24)] transition hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(227,6,19,.34)]" style={{ background: ctaGradient }}>
+          <a href={publicPathFor("order")} className="inline-flex min-h-11 items-center rounded-lg bg-brand-orange-500 px-4 py-2 text-xs font-bold text-brand-navy-900 shadow-[var(--shadow-sm)] transition hover:bg-brand-orange-600">
             {theme.ctaPrimary}
-          </button>
+          </a>
         </div>
 
-        <button className="ml-auto rounded-lg border border-white/15 bg-white/10 p-2 lg:hidden" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Mở menu">
+        <button className="ml-auto min-h-11 min-w-11 rounded-lg border border-[var(--border-light)] bg-white p-2 transition hover:border-brand-orange-500 lg:hidden" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Mở menu">
           {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
       </div>
 
       {mobileOpen && (
-        <div className="border-t border-white/10 px-4 py-3 lg:hidden" style={{ backgroundColor: theme.secondaryColor }}>
+        <div className="border-t border-[var(--border-light)] bg-white px-4 py-3 lg:hidden">
           <div className="grid gap-2">
             {navItems.map((item) => (
-              <button key={item.view} onClick={() => setView(item.view)} className={`rounded-lg px-3 py-2 text-left text-sm font-semibold ${view === item.view ? "text-white" : "text-[#d0daea] hover:bg-white/10"}`} style={view === item.view ? { backgroundColor: `${theme.primaryColor}33` } : undefined}>
+              <a key={item.view} href={publicPathFor(item.view)} className={`rounded-lg border-l-2 px-3 py-2 text-left text-sm font-semibold ${view === item.view ? "border-brand-orange-500 bg-orange-50 text-brand-navy-900" : "border-transparent text-slate-600 hover:bg-slate-50"}`} aria-current={view === item.view ? "page" : undefined}>
                 {item.label}
-              </button>
+              </a>
             ))}
           </div>
         </div>
@@ -289,7 +317,7 @@ function HomePage({ setView }: { setView: (view: View) => void }) {
                     <Sparkles className="h-4 w-4" />
                     Không gom kho, không chờ trung chuyển
                   </div>
-                  <h1 className="max-w-2xl text-4xl font-black leading-tight tracking-tight sm:text-5xl lg:text-6xl">
+                  <h1 className="max-w-2xl text-4xl font-black leading-tight tracking-normal sm:text-5xl lg:text-6xl">
                     Chuyển phát hỏa tốc liên tỉnh từ Hà Nội
                   </h1>
                   <p className="mt-5 max-w-xl text-base font-medium leading-7 text-slate-300">
@@ -326,7 +354,7 @@ function HomePage({ setView }: { setView: (view: View) => void }) {
         </div>
       </section>
 
-      <section className="border-y border-slate-200 bg-[#eef2f6]">
+      <section className="border-y border-slate-200 bg-[#EEF2F6]">
         <div className="mx-auto grid max-w-7xl gap-4 px-4 py-8 sm:px-6 md:grid-cols-4 lg:px-8">
           <ValueCard icon={Clock3} title="Giao nhanh đúng tuyến" desc="Tuyến gần Hà Nội có thể đi ngay trong 2-4 giờ." />
           <ValueCard icon={ShieldCheck} title="Không lộ dữ liệu nội bộ" desc="Tracking public chỉ hiển thị thông tin khách được phép xem." />
@@ -353,9 +381,9 @@ function HeroMetric({ value, label }: { value: string; label: string }) {
 
 function ValueCard({ icon: Icon, title, desc }: { icon: React.ElementType; title: string; desc: string }) {
   return (
-    <div className="rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
-      <Icon className="h-6 w-6 text-[#0057b8]" />
-      <h3 className="mt-3 font-extrabold text-[#0c2349]">{title}</h3>
+    <div className="rounded-lg border border-[#DCE3EA] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
+      <Icon className="h-6 w-6 text-[#173B63]" />
+      <h3 className="mt-3 font-extrabold text-[#0B1F3A]">{title}</h3>
       <p className="mt-2 text-sm leading-6 text-slate-600">{desc}</p>
     </div>
   );
@@ -427,7 +455,7 @@ function SectionTitle({ eyebrow, title, desc }: { eyebrow: string; title: string
   return (
     <div>
       <p className="text-xs font-black uppercase tracking-wide text-red-700">{eyebrow}</p>
-      <h2 className="mt-2 max-w-3xl text-3xl font-black tracking-tight text-slate-950">{title}</h2>
+      <h2 className="mt-2 max-w-3xl text-3xl font-black tracking-normal text-slate-950">{title}</h2>
       <p className="mt-3 max-w-2xl text-sm font-medium leading-6 text-slate-600">{desc}</p>
     </div>
   );
@@ -551,16 +579,16 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <div className={`rounded-2xl border border-[#eaeef4] bg-white shadow-[0_16px_40px_rgba(12,35,73,.08)] ${compact ? "p-5" : "p-6"}`}>
+    <div className={`rounded-lg border border-[#DCE3EA] bg-white shadow-[0_16px_40px_rgba(12,35,73,.08)] ${compact ? "p-5" : "p-6"}`}>
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-wide text-[#e30613]">Tạo đơn nhanh</p>
-          <h2 className="mt-1 text-xl font-extrabold text-[#0c2349]">Tạo đơn chuyển phát nhanh</h2>
+          <p className="text-xs font-black uppercase tracking-wide text-[#F97316]">Tạo đơn nhanh</p>
+          <h2 className="mt-1 text-xl font-extrabold text-[#0B1F3A]">Tạo đơn chuyển phát nhanh</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
             Nhập điểm lấy và điểm giao, hệ thống sẽ tự xác định tuyến, thời gian dự kiến và phương án xử lý phù hợp.
           </p>
         </div>
-        <PackageCheck className="hidden h-7 w-7 text-[#0057b8] sm:block" />
+        <PackageCheck className="hidden h-7 w-7 text-[#173B63] sm:block" />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -568,7 +596,7 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
         <AddressInput label="Điểm giao hàng" value={deliveryQuery} onChange={setDeliveryQuery} suggestions={deliverySuggestions} onSelect={(address) => { setDeliveryQuery(address.label); setDeliveryPlaceId(address.placeId); }} />
         <label className="block">
           <FieldLabel>Loại hàng</FieldLabel>
-          <select value={itemType} onChange={(event) => setItemType(event.target.value as ItemType)} className="mt-1 h-[48px] w-full rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#0057b8]">
+          <select value={itemType} onChange={(event) => setItemType(event.target.value as ItemType)} className="mt-1 h-[48px] w-full rounded-lg border-[1.5px] border-[#CBD5E1] bg-[#FFFFFF] px-3 text-sm font-semibold text-[#111827] outline-none transition focus:border-brand-orange-500">
             {itemOptions.map((type) => (
               <option key={type} value={type}>{ITEM_TYPE_LABELS[type]}</option>
             ))}
@@ -576,7 +604,7 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
         </label>
         <label className="block">
           <FieldLabel>Thời gian cần giao</FieldLabel>
-          <select value={expectedDeliveryTime} onChange={(event) => setExpectedDeliveryTime(event.target.value)} className="mt-1 h-[48px] w-full rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#0057b8]">
+          <select value={expectedDeliveryTime} onChange={(event) => setExpectedDeliveryTime(event.target.value)} className="mt-1 h-[48px] w-full rounded-lg border-[1.5px] border-[#CBD5E1] bg-[#FFFFFF] px-3 text-sm font-semibold text-[#111827] outline-none transition focus:border-brand-orange-500">
             <option>Càng sớm càng tốt</option>
             <option>Trong 2-4 giờ</option>
             <option>Trong ngày</option>
@@ -586,23 +614,23 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
         </label>
         <label className="block sm:col-span-2">
           <FieldLabel>Số điện thoại/Zalo khách</FieldLabel>
-          <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} className="mt-1 h-[48px] w-full rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#0057b8]" />
+          <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} className="mt-1 h-[48px] w-full rounded-lg border-[1.5px] border-[#CBD5E1] bg-[#FFFFFF] px-3 text-sm font-semibold text-[#111827] outline-none transition focus:border-brand-orange-500" />
         </label>
         <label className="block sm:col-span-2">
           <FieldLabel>Mo ta hang hoa</FieldLabel>
-          <textarea value={itemDescription} onChange={(event) => setItemDescription(event.target.value)} rows={3} className="mt-1 w-full rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 py-2 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#0057b8]" />
+          <textarea value={itemDescription} onChange={(event) => setItemDescription(event.target.value)} rows={3} className="mt-1 w-full rounded-lg border-[1.5px] border-[#CBD5E1] bg-[#FFFFFF] px-3 py-2 text-sm font-semibold text-[#111827] outline-none transition focus:border-brand-orange-500" />
         </label>
         <label className="block">
           <FieldLabel>So kien</FieldLabel>
-          <input type="number" min={1} value={packageCount} onChange={(event) => setPackageCount(Number(event.target.value) || 1)} className="mt-1 h-[48px] w-full rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#0057b8]" />
+          <input type="number" min={1} value={packageCount} onChange={(event) => setPackageCount(Number(event.target.value) || 1)} className="mt-1 h-[48px] w-full rounded-lg border-[1.5px] border-[#CBD5E1] bg-[#FFFFFF] px-3 text-sm font-semibold text-[#111827] outline-none transition focus:border-brand-orange-500" />
         </label>
         <label className="block">
           <FieldLabel>Can nang uoc tinh (kg)</FieldLabel>
-          <input type="number" min={0.1} step={0.1} value={weight} onChange={(event) => setWeight(Number(event.target.value) || 1)} className="mt-1 h-[48px] w-full rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#0057b8]" />
+          <input type="number" min={0.1} step={0.1} value={weight} onChange={(event) => setWeight(Number(event.target.value) || 1)} className="mt-1 h-[48px] w-full rounded-lg border-[1.5px] border-[#CBD5E1] bg-[#FFFFFF] px-3 text-sm font-semibold text-[#111827] outline-none transition focus:border-brand-orange-500" />
         </label>
         <div className="sm:col-span-2">
           <FieldLabel>Hinh anh san pham</FieldLabel>
-          <label className="mt-1 flex cursor-pointer items-center justify-center gap-2 rounded-[11px] border border-dashed border-[#bfd6ef] bg-[#f3f8ff] px-4 py-4 text-sm font-black text-[#003b73] hover:bg-[#eaf4ff]">
+          <label className="mt-1 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-[#CBD5E1] bg-[#F5F7FA] px-4 py-4 text-sm font-black text-[#0B1F3A] hover:bg-[#EEF2F6]">
             <ImagePlus className="h-4 w-4" />
             Tai anh hang hoa (toi da 4 anh)
             <input type="file" accept="image/*" multiple onChange={(event) => handleImageUpload(event.target.files)} className="sr-only" />
@@ -623,12 +651,12 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
       </div>
 
       <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-        <button onClick={estimateRoute} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-[11px] bg-[#0c2349] px-4 py-2.5 text-sm font-black text-white shadow-[0_8px_18px_rgba(12,35,73,.18)] disabled:opacity-60">
+        <button onClick={estimateRoute} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#0B1F3A] px-4 py-2.5 text-sm font-black text-white shadow-[0_8px_18px_rgba(12,35,73,.18)] disabled:opacity-60">
           <RouteIcon className="h-4 w-4" />
           Ước tính tuyến
         </button>
         {estimate && (
-          <button onClick={createOrder} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-[11px] bg-gradient-to-b from-[#ff1b24] to-[#e30613] px-4 py-2.5 text-sm font-black text-white shadow-[0_8px_18px_rgba(227,6,19,.26)] disabled:opacity-60">
+          <button onClick={createOrder} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-orange-500 px-4 py-2.5 text-sm font-black text-brand-navy-900 shadow-[0_8px_18px_rgba(249,115,22,.26)] transition hover:bg-brand-orange-600 disabled:opacity-60">
             <Send className="h-4 w-4" />
             {estimate.ctaText}
           </button>
@@ -643,7 +671,7 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <span className="text-xs font-black uppercase tracking-wide text-[#7c8696]">{children}</span>;
+  return <span className="text-xs font-black uppercase tracking-wide text-[#64748B]">{children}</span>;
 }
 
 function AddressInput({
@@ -662,10 +690,10 @@ function AddressInput({
   return (
     <label className="block">
       <FieldLabel>{label}</FieldLabel>
-      <input value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 h-[48px] w-full rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#0057b8]" />
+      <input value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 h-[48px] w-full rounded-lg border-[1.5px] border-[#CBD5E1] bg-[#FFFFFF] px-3 text-sm font-semibold text-[#111827] outline-none transition focus:border-brand-orange-500" />
       <div className="mt-2 flex flex-wrap gap-2">
         {suggestions.slice(0, 3).map((address) => (
-          <button key={address.placeId} type="button" onClick={() => onSelect(address)} className="rounded-full border border-[#eaeef4] bg-[#f6f8fb] px-3 py-1 text-xs font-bold text-[#4a5868] hover:border-[#0057b8]/40 hover:bg-[#eef7ff]">
+          <button key={address.placeId} type="button" onClick={() => onSelect(address)} className="rounded-full border border-[#DCE3EA] bg-[#F5F7FA] px-3 py-1 text-xs font-bold text-[#475569] hover:border-[#173B63]/40 hover:bg-[#EEF2F6]">
             {address.label}
           </button>
         ))}
@@ -676,14 +704,14 @@ function AddressInput({
 
 function RouteEstimateCard({ estimate }: { estimate: RouteEstimate }) {
   return (
-    <div className="mt-5 rounded-[14px] border border-[#bfd6ef] bg-[#f3f8ff] p-4">
+    <div className="mt-5 rounded-lg border border-[#CBD5E1] bg-[#F5F7FA] p-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-wide text-[#e30613]">Kết quả phân tuyến</p>
-          <h3 className="mt-1 text-lg font-black text-[#0c2349]">{estimate.routeName}</h3>
+          <p className="text-xs font-black uppercase tracking-wide text-[#F97316]">Kết quả phân tuyến</p>
+          <h3 className="mt-1 text-lg font-black text-[#0B1F3A]">{estimate.routeName}</h3>
           <p className="mt-1 text-sm font-semibold text-slate-700">{estimate.publicMessage}</p>
         </div>
-        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#0c2349]">{estimate.statusText}</span>
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#0B1F3A]">{estimate.statusText}</span>
       </div>
       <div className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
         <Info label="Chiều vận chuyển" value={estimate.direction} />
@@ -697,14 +725,14 @@ function RouteEstimateCard({ estimate }: { estimate: RouteEstimate }) {
 
 function OrderCreatedCard({ order }: { order: Order }) {
   return (
-    <div className="mt-5 rounded-[14px] border border-emerald-200 bg-emerald-50 p-4">
+    <div className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
       <h3 className="text-lg font-black text-emerald-800">Đã tiếp nhận yêu cầu gửi hàng</h3>
       <p className="mt-2 text-sm font-semibold text-slate-700">Mã đơn: <span className="font-black">{order.orderCode}</span></p>
       <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">
         Don da duoc gui ve bot Telegram cho dieu hanh. Gia tren website la gia de xuat; khi duyet gia va co xe nhan don, he thong se gui thong tin qua Zalo cua khach.
       </p>
       <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-        <a href={`tel:${hotline.replace(/\s/g, "")}`} className="rounded-[11px] bg-[#0c2349] px-4 py-2 text-center text-sm font-black text-white">
+        <a href={`tel:${hotline.replace(/\s/g, "")}`} className="rounded-lg bg-[#0B1F3A] px-4 py-2 text-center text-sm font-black text-white">
           Gọi/Zalo {hotline}
         </a>
       </div>
@@ -714,17 +742,17 @@ function OrderCreatedCard({ order }: { order: Order }) {
 
 function Info({ label, value }: { key?: React.Key; label: string; value?: React.ReactNode }) {
   return (
-    <div className="rounded-[11px] border border-[#eaeef4] bg-white p-3">
-      <div className="text-xs font-black uppercase tracking-wide text-[#7c8696]">{label}</div>
-      <div className="mt-1 break-words font-black text-[#0c2349]">{value || "-"}</div>
+    <div className="rounded-lg border border-[#DCE3EA] bg-white p-3">
+      <div className="text-xs font-black uppercase tracking-wide text-[#64748B]">{label}</div>
+      <div className="mt-1 break-words font-black text-[#0B1F3A]">{value || "-"}</div>
     </div>
   );
 }
 
 function SidePanel({ title, items }: { title: string; items: string[] }) {
   return (
-    <aside className="h-fit rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_16px_40px_rgba(12,35,73,.06)]">
-      <h2 className="font-extrabold text-[#0c2349]">{title}</h2>
+    <aside className="h-fit rounded-lg border border-[#DCE3EA] bg-white p-5 shadow-[0_16px_40px_rgba(12,35,73,.06)]">
+      <h2 className="font-extrabold text-[#0B1F3A]">{title}</h2>
       <div className="mt-4 grid gap-3">
         {items.map((item) => (
           <div key={item} className="flex gap-3 text-sm font-semibold leading-6 text-slate-700">
@@ -748,12 +776,12 @@ function RoutesPage() {
     <PageShell title="Tuyến dịch vụ" desc="Chỉ phục vụ các tuyến 2 chiều từ Hà Nội đi tỉnh và từ tỉnh về Hà Nội trong danh sách. Không có tuyến Hà Nội - Điện Biên.">
       <div className="grid gap-4">
         {groups.map(([title, provinces]) => (
-          <div key={title as string} className="rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
-            <h2 className="font-extrabold text-[#0c2349]">{title}</h2>
+          <div key={title as string} className="rounded-lg border border-[#DCE3EA] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
+            <h2 className="font-extrabold text-[#0B1F3A]">{title}</h2>
             <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {(provinces as string[]).map((province) => (
-                <div key={province} className="rounded-[11px] border border-[#eaeef4] bg-[#f6f8fb] p-3 text-sm font-bold text-[#0c2349]">
-                  Hà Nội <span className="text-[#e30613]">↔</span> {province}
+                <div key={province} className="rounded-lg border border-[#DCE3EA] bg-[#F5F7FA] p-3 text-sm font-bold text-[#0B1F3A]">
+                  Hà Nội <span className="text-[#F97316]">↔</span> {province}
                 </div>
               ))}
             </div>
@@ -772,7 +800,7 @@ function PricingPage() {
         <Price title="Hàng nhỏ / hàng shop" price="Từ 190.000đ" desc="Tuyến trong ngày hoặc 24h." />
         <Price title="Xe máy / hàng cồng kềnh" price="Báo giá thủ công" desc="Admin xác nhận kích thước, xe phù hợp và lịch bốc dỡ." />
       </div>
-      <div className="mt-5 overflow-hidden rounded-2xl border border-[#eaeef4] bg-white shadow-[0_12px_34px_rgba(12,35,73,.06)]">
+      <div className="mt-5 overflow-hidden rounded-lg border border-[#DCE3EA] bg-white shadow-[0_12px_34px_rgba(12,35,73,.06)]">
         {[
           ["Nhóm tuyến", "Loại hàng", "Thời gian", "Xử lý"],
           ["Gần Hà Nội", "Giấy tờ, hàng nhỏ, hàng shop", "2-4 giờ", "Có thể tạo đơn ngay"],
@@ -780,7 +808,7 @@ function PricingPage() {
           ["Tây Bắc", "Hàng nhỏ, giấy tờ", "Cần xác nhận lịch xe", "Admin kiểm tra thủ công"],
           ["Hàng đặc biệt", "Xe máy, tivi, tủ lạnh, quá khổ", "Theo điều phối", "Báo giá thủ công"],
         ].map((row, idx) => (
-          <div key={row.join("-")} className={`grid grid-cols-4 gap-3 px-4 py-3 text-sm ${idx === 0 ? "bg-[#0c2349] font-black text-white" : "border-t border-[#eef1f6] font-semibold text-[#4a5868]"}`}>
+          <div key={row.join("-")} className={`grid grid-cols-4 gap-3 px-4 py-3 text-sm ${idx === 0 ? "bg-[#0B1F3A] font-black text-white" : "border-t border-[#eef1f6] font-semibold text-[#475569]"}`}>
             {row.map((cell) => <div key={cell}>{cell}</div>)}
           </div>
         ))}
@@ -791,10 +819,10 @@ function PricingPage() {
 
 function Price({ title, price, desc }: { title: string; price: string; desc: string }) {
   return (
-    <div className="rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
-      <WalletCards className="mb-4 h-6 w-6 text-[#0057b8]" />
-      <h2 className="font-extrabold text-[#0c2349]">{title}</h2>
-      <p className="mt-3 text-2xl font-extrabold text-[#e30613]">{price}</p>
+    <div className="rounded-lg border border-[#DCE3EA] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
+      <WalletCards className="mb-4 h-6 w-6 text-[#173B63]" />
+      <h2 className="font-extrabold text-[#0B1F3A]">{title}</h2>
+      <p className="mt-3 text-2xl font-extrabold text-[#F97316]">{price}</p>
       <p className="mt-2 text-sm leading-6 text-slate-600">{desc}</p>
     </div>
   );
@@ -822,15 +850,15 @@ function TrackingPage() {
   return (
     <PageShell title="Tra cứu đơn" desc="Khách chỉ thấy thông tin public: trạng thái, timeline, hotline và tài xế nếu admin cho phép.">
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-        <div className="rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_16px_40px_rgba(12,35,73,.08)]">
+        <div className="rounded-lg border border-[#DCE3EA] bg-white p-5 shadow-[0_16px_40px_rgba(12,35,73,.08)]">
           <div className="grid gap-4 sm:grid-cols-3">
-            <input value={orderCode} onChange={(event) => setOrderCode(event.target.value)} className="h-[48px] rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#0057b8]" placeholder="Mã đơn" />
-            <input value={phone} onChange={(event) => setPhone(event.target.value)} className="h-[48px] rounded-[11px] border-[1.5px] border-[#e2e7ee] bg-[#fbfcfd] px-3 text-sm font-semibold text-[#14233f] outline-none transition focus:border-[#0057b8]" placeholder="Số điện thoại" />
-            <button onClick={lookup} className="rounded-[11px] bg-gradient-to-b from-[#ff1b24] to-[#e30613] px-4 py-2 text-sm font-black text-white shadow-[0_8px_18px_rgba(227,6,19,.26)]">Tra cứu</button>
+            <input value={orderCode} onChange={(event) => setOrderCode(event.target.value)} className="h-[48px] rounded-lg border-[1.5px] border-[#CBD5E1] bg-[#FFFFFF] px-3 text-sm font-semibold text-[#111827] outline-none transition focus:border-brand-orange-500" placeholder="Mã đơn" />
+            <input value={phone} onChange={(event) => setPhone(event.target.value)} className="h-[48px] rounded-lg border-[1.5px] border-[#CBD5E1] bg-[#FFFFFF] px-3 text-sm font-semibold text-[#111827] outline-none transition focus:border-brand-orange-500" placeholder="Số điện thoại" />
+            <button onClick={lookup} className="rounded-lg bg-brand-orange-500 px-4 py-2 text-sm font-black text-brand-navy-900 shadow-[0_8px_18px_rgba(249,115,22,.26)] transition hover:bg-brand-orange-600">Tra cứu</button>
           </div>
           {message && <p className="mt-4 rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{message}</p>}
           {tracking && (
-            <div className="mt-5 rounded-[14px] border border-[#eaeef4] bg-[#f6f8fb] p-4">
+            <div className="mt-5 rounded-lg border border-[#DCE3EA] bg-[#F5F7FA] p-4">
               <div className="flex flex-col justify-between gap-3 sm:flex-row">
                 <div>
                   <h2 className="text-xl font-black">{tracking.orderCode}</h2>
@@ -840,7 +868,7 @@ function TrackingPage() {
               </div>
               <div className="mt-5 grid gap-3">
                 {tracking.publicTimeline.map((event) => (
-                  <div key={event.id} className="rounded-[11px] border border-[#eaeef4] bg-white p-3">
+                  <div key={event.id} className="rounded-lg border border-[#DCE3EA] bg-white p-3">
                     <div className="font-black">{event.title}</div>
                     <p className="mt-1 text-sm text-slate-600">{event.description}</p>
                   </div>
@@ -2442,9 +2470,9 @@ function ContactPage() {
 
 function Contact({ icon, title, value }: { icon: React.ReactNode; title: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
-      <div className="mb-3 h-6 w-6 text-[#0057b8]">{icon}</div>
-      <h2 className="font-extrabold text-[#0c2349]">{title}</h2>
+    <div className="rounded-lg border border-[#DCE3EA] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
+      <div className="mb-3 h-6 w-6 text-[#173B63]">{icon}</div>
+      <h2 className="font-extrabold text-[#0B1F3A]">{title}</h2>
       <p className="mt-2 text-sm font-semibold text-slate-600">{value}</p>
     </div>
   );
@@ -2458,30 +2486,30 @@ function SeoPage({ setView, seoPages }: { setView: (view: View) => void; seoPage
   return (
     <PageShell title={page.h1} desc={page.description}>
       <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
-        <article className="rounded-2xl border border-[#eaeef4] bg-white p-6 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
+        <article className="rounded-lg border border-[#DCE3EA] bg-white p-6 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
           <p className="text-[15px] leading-8 text-slate-700">{page.intro}</p>
           <div className="mt-5 flex flex-wrap gap-2">
             {page.keywords.map((keyword) => (
-              <span key={keyword} className="rounded-full bg-[#eef7ff] px-3 py-1 text-xs font-black text-[#0057b8]">
+              <span key={keyword} className="rounded-full bg-[#EEF2F6] px-3 py-1 text-xs font-black text-[#173B63]">
                 {keyword}
               </span>
             ))}
           </div>
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             {["Nhận tận nơi", "Giao tận tay", "Có mã tra cứu"].map((item) => (
-              <div key={item} className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-black text-[#0c2349]">
-                <CheckCircle2 className="mb-3 h-5 w-5 text-[#0057b8]" />
+              <div key={item} className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm font-black text-[#0B1F3A]">
+                <CheckCircle2 className="mb-3 h-5 w-5 text-[#173B63]" />
                 {item}
               </div>
             ))}
           </div>
-          <button onClick={() => setView("order")} className="mt-6 rounded-[11px] bg-gradient-to-b from-[#ff1b24] to-[#e30613] px-5 py-3 text-sm font-black text-white shadow-[0_8px_18px_rgba(227,6,19,.26)]">Tạo đơn ngay</button>
+          <a href={publicPathFor("order")} className="mt-6 inline-flex rounded-lg bg-brand-orange-500 px-5 py-3 text-sm font-black text-brand-navy-900 shadow-[0_8px_18px_rgba(249,115,22,.26)] transition hover:bg-brand-orange-600">Tạo đơn ngay</a>
         </article>
-        <aside className="rounded-2xl border border-[#eaeef4] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
-          <h2 className="text-base font-black text-[#0c2349]">Dịch vụ liên quan</h2>
+        <aside className="rounded-lg border border-[#DCE3EA] bg-white p-5 shadow-[0_12px_34px_rgba(12,35,73,.06)]">
+          <h2 className="text-base font-black text-[#0B1F3A]">Dịch vụ liên quan</h2>
           <div className="mt-4 grid gap-3">
             {relatedPages.map((item) => (
-              <a key={item.slug} href={`/${item.slug}`} className="rounded border border-slate-200 p-3 text-sm font-bold leading-6 text-slate-700 transition hover:border-[#0057b8] hover:text-[#003b73]">
+              <a key={item.slug} href={`/${item.slug}`} className="rounded border border-slate-200 p-3 text-sm font-bold leading-6 text-slate-700 transition hover:border-[#173B63] hover:text-[#0B1F3A]">
                 {item.h1}
               </a>
             ))}
@@ -2494,22 +2522,27 @@ function SeoPage({ setView, seoPages }: { setView: (view: View) => void; seoPage
 
 function PageShell({ title, desc, children }: { title: string; desc: string; children: React.ReactNode }) {
   return (
-    <section className="bg-[#f6f8fb] text-[#14233f]">
+    <section className="bg-[#F5F7FA] text-[#111827]">
       <div
-        className="relative overflow-hidden bg-[#003b73] text-white"
+        className="relative overflow-hidden bg-[#0B1F3A] text-white"
         style={{
           backgroundImage:
-            "linear-gradient(100deg, rgba(0,59,115,.96) 0%, rgba(0,59,115,.88) 40%, rgba(0,87,184,.58) 100%), url('/theme/banner-hero.png')",
+            "linear-gradient(100deg, rgba(11,31,58,.97) 0%, rgba(11,31,58,.9) 42%, rgba(23,59,99,.75) 100%), url('/theme/banner-hero.png')",
           backgroundPosition: "center 42%",
           backgroundSize: "cover",
         }}
       >
         <div className="mx-auto max-w-[1480px] px-4 py-12 sm:px-6 lg:px-[10%] lg:py-16">
-          <p className="text-xs font-extrabold uppercase tracking-[.2em] text-[#ff3b42]">Chuyển Phát 24H</p>
-          <h1 className="mt-3 max-w-4xl text-[34px] font-extrabold leading-tight tracking-tight sm:text-[44px]">{title}</h1>
-          <p className="mt-4 max-w-3xl text-[15px] font-medium leading-7 text-[#dbe4f1]">{desc}</p>
+          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs font-semibold text-[#E2E8F0]">
+            <a href={publicPathFor("home")} className="transition hover:text-white">Trang chu</a>
+            <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+            <span aria-current="page" className="truncate text-white">{title}</span>
+          </nav>
+          <p className="mt-5 text-xs font-extrabold uppercase tracking-normal text-brand-orange-500">Chuyển Phát 24H</p>
+          <h1 className="mt-3 max-w-4xl text-[34px] font-extrabold leading-tight tracking-normal sm:text-[44px]">{title}</h1>
+          <p className="mt-4 max-w-3xl text-[15px] font-medium leading-7 text-[#E2E8F0]">{desc}</p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <a href={phoneHref} className="inline-flex items-center gap-2 rounded-full bg-gradient-to-b from-[#ff1b24] to-[#e30613] px-5 py-3 text-sm font-extrabold text-white shadow-[0_8px_20px_rgba(227,6,19,.28)]">
+            <a href={phoneHref} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-brand-orange-500 px-5 py-3 text-sm font-extrabold text-brand-navy-900 shadow-[0_8px_20px_rgba(249,115,22,.28)] transition hover:bg-brand-orange-600">
               <Phone className="h-4 w-4" />
               {hotline}
             </a>
@@ -2521,35 +2554,28 @@ function PageShell({ title, desc, children }: { title: string; desc: string; chi
   );
 }
 
-function Footer({ setView, theme }: { setView: (view: View) => void; theme: SiteThemeSettings }) {
+function Footer({ theme }: { theme: SiteThemeSettings }) {
   const footerPhoneHref = `tel:${theme.hotline.replace(/\D/g, "")}`;
   return (
-    <footer className="text-[#c9d9ea]" style={{ background: `linear-gradient(135deg, ${theme.secondaryColor}, #002d58)` }}>
+    <footer className="bg-brand-navy-900 text-slate-300">
       <div className="mx-auto grid max-w-[1480px] gap-8 px-4 py-10 sm:px-6 md:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr] lg:px-[10%]">
         <div>
-          <div className="flex items-center gap-3">
-            <span className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] shadow-[0_6px_16px_rgba(0,87,184,.22)]" style={{ background: `linear-gradient(135deg, ${theme.accentColor}, ${theme.secondaryColor})` }}>
-              <Truck className="h-6 w-6 text-white" />
-            </span>
-            <div className="font-extrabold tracking-wide text-white">
-              {theme.brandShortName}
-            </div>
-          </div>
+          <BrandLogo tone="dark" showTagline />
           <p className="mt-4 max-w-[340px] text-[13.5px] leading-6">
             {theme.footerDescription}
           </p>
         </div>
         <div>
-          <h4 className="mb-4 mt-1 text-[13px] font-bold tracking-wide text-white">DỊCH VỤ</h4>
+          <h4 className="mb-4 mt-1 text-[13px] font-bold tracking-normal text-white">DỊCH VỤ</h4>
           <div className="grid gap-2 text-[13.5px]">
-            <button onClick={() => setView("order")} className="text-left font-bold hover:text-white">Tạo đơn hàng</button>
-            <button onClick={() => setView("tracking")} className="text-left font-bold hover:text-white">Tra cứu đơn</button>
-            <button onClick={() => setView("routes")} className="text-left font-bold hover:text-white">Tuyến chuyển phát</button>
-            <button onClick={() => setView("pricing")} className="text-left font-bold hover:text-white">Bảng giá</button>
+            <a href={publicPathFor("order")} className="text-left font-bold transition hover:text-brand-orange-500">Tạo đơn hàng</a>
+            <a href={publicPathFor("tracking")} className="text-left font-bold transition hover:text-brand-orange-500">Tra cứu đơn</a>
+            <a href={publicPathFor("routes")} className="text-left font-bold transition hover:text-brand-orange-500">Tuyến chuyển phát</a>
+            <a href={publicPathFor("pricing")} className="text-left font-bold transition hover:text-brand-orange-500">Bảng giá</a>
           </div>
         </div>
         <div>
-          <h4 className="mb-4 mt-1 text-[13px] font-bold tracking-wide text-white">LIÊN HỆ</h4>
+          <h4 className="mb-4 mt-1 text-[13px] font-bold tracking-normal text-white">LIÊN HỆ</h4>
           <div className="grid gap-3 text-[13.5px]">
             <a href={footerPhoneHref} className="flex items-center gap-2 font-bold text-white">
               <Phone className="h-4 w-4" style={{ color: theme.primaryColor }} />
@@ -2562,7 +2588,7 @@ function Footer({ setView, theme }: { setView: (view: View) => void; theme: Site
           </div>
         </div>
       </div>
-      <div className="border-t border-white/10 py-5 text-center text-[12.5px] text-[#7b8aa0]">
+      <div className="border-t border-white/10 py-5 text-center text-[12.5px] text-slate-400">
         {theme.footerCopyright}
       </div>
     </footer>
