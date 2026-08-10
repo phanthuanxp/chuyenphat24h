@@ -57,8 +57,19 @@ fi
 pm2 save
 
 echo "[deploy] healthcheck"
-curl --fail --silent --show-error "http://127.0.0.1:${PORT:-3010}/api/health"
-echo
-DEPLOY_SUCCEEDED=1
+health_url="http://127.0.0.1:${PORT:-3010}/api/health"
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  if curl --fail --silent --show-error "$health_url"; then
+    echo
+    DEPLOY_SUCCEEDED=1
+    break
+  fi
+  echo "[deploy] healthcheck attempt $attempt failed; retrying..." >&2
+  sleep 2
+done
+if [ "$DEPLOY_SUCCEEDED" -ne 1 ]; then
+  echo "[deploy] healthcheck failed after retries" >&2
+  exit 1
+fi
 trap - EXIT
 echo "[deploy] done"
