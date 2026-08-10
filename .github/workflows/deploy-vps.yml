@@ -1,0 +1,61 @@
+name: Deploy Chuyen Phat 24H to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: chuyenphat24h-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Validate and deploy
+    runs-on: ubuntu-latest
+    env:
+      APP_DIR: /var/www/chuyenphat24h
+      APP_NAME: chuyenphat24h
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      DEPLOY_SSH_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+      HEALTHCHECK_URL: ${{ secrets.CP24H_HEALTHCHECK_URL }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Validate production build
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+
+      - name: Configure SSH
+        run: |
+          test -n "$VPS_HOST"
+          test -n "$VPS_USER"
+          test -n "$DEPLOY_SSH_KEY"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "${VPS_PORT:-22}" -H "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy on VPS
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" \
+            "APP_DIR='$APP_DIR' BRANCH='main' APP_NAME='$APP_NAME' bash '$APP_DIR/deploy/deploy.sh'"
+
+      - name: Verify public health check
+        run: |
+          health_url="${HEALTHCHECK_URL:-https://chuyenphat24h.com/api/health}"
+          curl --fail --silent --show-error --retry 5 --retry-delay 5 "$health_url"
