@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import {
   ArrowRight,
   Check,
@@ -17,10 +17,10 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { ITEM_TYPE_LABELS, ItemType } from "../lib/constants/enums";
 import type { SiteThemeSettings } from "../lib/theme/themeTypes";
 import { publicPathFor, type PublicView } from "../lib/siteNavigation";
 import { BrandLogo } from "./BrandLogo";
+import { FastQuoteForm } from "./FastQuoteForm";
 
 type View = PublicView;
 
@@ -42,16 +42,11 @@ const landingNavItems: Array<[string, View]> = [
 ];
 
 export function ThemeLanding({ theme }: ThemeLandingProps) {
-  const [selectedType, setSelectedType] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const themePhoneHref = `tel:${theme.hotline.replace(/\D/g, "")}`;
   const primaryColor = theme.primaryColor;
   const secondaryColor = theme.secondaryColor;
   const accentColor = theme.accentColor;
-  const selectedPrice = useMemo(
-    () => theme.goodsTypes.find((item) => item.name === selectedType)?.price || "Chọn loại hàng để xem giá",
-    [selectedType, theme.goodsTypes],
-  );
 
   return (
     <div className="bg-[var(--background-subtle)] text-[var(--text-primary)]">
@@ -140,60 +135,7 @@ export function ThemeLanding({ theme }: ThemeLandingProps) {
             </div>
           </div>
 
-          <div className="relative z-10 w-full flex-none rounded-lg border border-white/60 bg-white p-5 text-[var(--text-primary)] shadow-[var(--shadow-lg)] sm:p-6 lg:w-[392px]">
-            <div className="mb-5 flex items-center gap-3">
-              <ClipboardCheck className="h-7 w-7" style={{ color: accentColor }} />
-              <h3 className="m-0 text-[22px] font-bold text-brand-navy-900">Tạo đơn nhanh</h3>
-              <span className="ml-auto whitespace-nowrap rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-brand-orange-700">
-                Chỉ 30 giây
-              </span>
-            </div>
-            <p className="mb-5 text-sm leading-6 text-[var(--text-secondary)]">
-              {theme.heroSubtitle}
-            </p>
-
-            <div className="grid gap-3">
-              <ThemeInput icon={Phone} type="tel" placeholder="Số điện thoại của bạn" color={primaryColor} />
-              <ThemeInput icon={Target} placeholder="Lấy hàng tại (khu vực / địa chỉ)" color={accentColor} />
-              <ThemeInput icon={MapPin} placeholder="Giao đến (khu vực / địa chỉ)" color={primaryColor} />
-              <label className="relative block">
-                <Package className="pointer-events-none absolute left-3.5 top-4 h-[18px] w-[18px]" style={{ color: accentColor }} />
-                <select
-                  value={selectedType}
-                  onChange={(event) => setSelectedType(event.target.value)}
-                  className="h-12 w-full appearance-none rounded-lg border border-[var(--border-default)] bg-white px-11 text-sm text-[var(--text-primary)] outline-none transition focus:border-brand-orange-500"
-                >
-                  <option value="">Chọn loại hàng hóa để xem giá</option>
-                  {theme.goodsTypes.map((item) => (
-                    <option key={item.name} value={item.name}>{item.name}</option>
-                  ))}
-                </select>
-                <span className="pointer-events-none absolute right-4 top-5 text-xs text-slate-400">⌄</span>
-              </label>
-            </div>
-
-            <div className="my-4 flex items-center justify-between gap-3 rounded-lg border border-dashed border-brand-orange-500/45 bg-orange-50 px-3.5 py-3">
-              <div className="flex items-center gap-2 text-[13px] font-semibold text-brand-navy-900">
-                <FileText className="h-4 w-4" style={{ color: accentColor }} />
-                Giá tham khảo
-              </div>
-              <strong className="whitespace-nowrap text-base font-extrabold text-brand-orange-700">{selectedPrice}</strong>
-            </div>
-            <p className="-mt-2 mb-4 text-[13px] leading-5 text-[var(--text-muted)]">
-              Giá chỉ mang tính tham khảo, nhân viên sẽ báo giá chính xác khi liên hệ.
-            </p>
-            <a
-              href={publicPathFor("order")}
-              className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-lg bg-brand-orange-500 text-base font-bold text-brand-navy-900 shadow-[var(--shadow-sm)] transition hover:bg-brand-orange-600"
-            >
-              {theme.ctaPrimary}
-              <ArrowRight className="h-5 w-5" />
-            </a>
-            <div className="mt-3 flex items-center justify-center gap-2 text-[13px] text-[var(--text-muted)]">
-              <ShieldCheck className="h-4 w-4" style={{ color: accentColor }} />
-              Bảo mật thông tin, nhân viên gọi lại trong 5 phút
-            </div>
-          </div>
+          <div className="relative z-10 w-full flex-none lg:w-[392px]"><FastQuoteForm /></div>
         </div>
       </section>
 
@@ -360,18 +302,6 @@ function NavButton({ active, children, href }: { active?: boolean; children: Rea
     >
       {children}
     </a>
-  );
-}
-
-function ThemeInput({ icon: Icon, color, ...props }: React.InputHTMLAttributes<HTMLInputElement> & { icon: React.ElementType; color: string }) {
-  return (
-    <label className="relative block">
-      <Icon className="pointer-events-none absolute left-3.5 top-4 h-[18px] w-[18px]" style={{ color }} />
-      <input
-        {...props}
-        className="h-12 w-full rounded-lg border border-[var(--border-default)] bg-white px-11 text-sm text-[var(--text-primary)] outline-none transition placeholder:text-[var(--text-muted)] focus:border-brand-orange-500"
-      />
-    </label>
   );
 }
 
