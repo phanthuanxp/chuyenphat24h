@@ -40,10 +40,12 @@ export interface DriverCandidate {
 export interface Order {
   id: string;
   orderCode: string;
+  idempotencyKey?: string;
   source: OrderSource;
   customerId?: string;
   senderName: string;
   senderPhone: string;
+  customerZaloUserId?: string;
   pickupAddress: string;
   pickupDistrict?: string;
   pickupProvince: string;
@@ -214,6 +216,49 @@ export interface NotificationLog {
   createdAt: string;
 }
 
+export type NotificationJobStatus = "QUEUED" | "PROCESSING" | "SENT" | "FAILED" | "DEAD_LETTER";
+
+export interface NotificationJob {
+  id: string;
+  idempotencyKey: string;
+  channel: NotificationLog["channel"];
+  eventType: NotificationLog["eventType"];
+  orderId?: string;
+  orderCode?: string;
+  recipient?: string;
+  fallbackRecipient?: string;
+  message: string;
+  status: NotificationJobStatus;
+  attempts: number;
+  maxAttempts: number;
+  nextAttemptAt: string;
+  lastAttemptAt?: string;
+  lastError?: string;
+  providerStatus?: NotificationLog["status"];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AuditSource = "ADMINCP" | "ZALO_ADMIN" | "ZALO_CUSTOMER" | "TELEGRAM" | "SYSTEM";
+
+export interface OrderAuditChange {
+  field: string;
+  before?: unknown;
+  after?: unknown;
+}
+
+export interface OrderAuditLog {
+  id: string;
+  orderId: string;
+  orderCode: string;
+  action: string;
+  source: AuditSource;
+  actor: string;
+  reason?: string;
+  changes: OrderAuditChange[];
+  createdAt: string;
+}
+
 export interface PricingRule {
   id: string;
   originProvince: string;
@@ -302,6 +347,8 @@ export interface QuickOrderPayload {
   itemType: ItemType;
   expectedDeliveryTime: string;
   customerPhone: string;
+  receiverPhone?: string;
+  idempotencyKey?: string;
   senderName?: string;
   receiverName?: string;
   itemDescription?: string;

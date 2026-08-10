@@ -72,6 +72,7 @@ Quan trong nhat trong MVP:
 - `ZALO_ACCESS_TOKEN=`
 - `ZALO_ADMIN_USER_ID=`
 - `ZALO_ADMIN_USER_IDS=`
+- `NOTIFICATION_WORKER_INTERVAL_MS=5000`
 - `ADMIN_USERNAME=admin`
 - `ADMIN_PASSWORD=...`
 - `ADMIN_SESSION_SECRET=...`
@@ -84,8 +85,11 @@ Khong dua `.env` that vao git.
 - `src/lib/types`: domain model cho Order, Customer, ZaloRouteGroup, DriverPartner, PricingRule.
 - `src/lib/maps`: Maps adapter, mock provider, real provider placeholder, route classifier.
 - `src/lib/orders`: tao don nhanh, order service voi PostgreSQL/JSON storage.
+- `src/lib/orders/orderStateMachine`: quy tac chuyen trang thai va khoa don terminal.
+- `src/lib/audit`: audit log truoc/sau cho thao tac AdminCP, Zalo, Telegram va system.
 - `src/lib/pricing`: dinh gia va manual quote rules.
 - `src/lib/dispatch`: AI dispatch mock, preview va send mock vao group Zalo.
+- `src/lib/notification`: notification outbox ben vung, worker retry Zalo/Telegram va delivery logs.
 - `src/lib/zalo`: group service va bot command parser.
 - `src/lib/tracking`: public tracking, an du lieu noi bo.
 - `src/lib/partners`: dang ky doi tac doi xe.
@@ -97,7 +101,7 @@ Khong dua `.env` that vao git.
 2. Frontend goi API noi bo de autocomplete dia chi mock Maps.
 3. API phan tuyen, tinh khoang cach mock va tao `quotedPrice` la gia de xuat.
 4. Don duoc luu vao PostgreSQL production neu co `DATABASE_URL`, fallback JSON storage neu chua cau hinh DB, kem anh san pham va co `orderCode`.
-5. He thong gui lead moi ve kenh Zalo admin, dong thoi tao notification log.
+5. He thong ghi job vao notification outbox; worker gui lead ve Zalo/Telegram, retry khi loi va tao delivery log.
 6. Admin thao tac tren Zalo de bao gia/chot lich: `GIA CP24H-xxxx 250000 14h hom nay`.
 7. He thong gui bao gia va lich lay hang qua Zalo cho khach.
 8. Khach xac nhan tren Zalo bang cu phap `DONG Y CP24H-xxxx`.
@@ -111,6 +115,15 @@ Khong dua `.env` that vao git.
 - Neu khong phai admin, he thong xu ly nhu phan hoi cua khach.
 - `POST /api/zalo/admin-command` dung de test lenh Zalo trong noi bo khi da dang nhap AdminCP.
 - `GET /api/notification/logs` trong AdminCP/API tra ve log Telegram/Zalo.
+- `GET /api/admin/notification-jobs` tra ve outbox; job loi co the retry tai Notification Center trong AdminCP.
+- `GET /api/admin/orders/:id/audit` tra ve audit log noi bo cua don.
+
+## Bao ve trang thai va audit
+
+- Moi thay doi trang thai deu phai nam trong state machine; transition sai tra HTTP 409.
+- Don `DELIVERED`, `CANCELLED`, `RETURNED` bi khoa thay doi nghiep vu, chi cho phep them ghi chu/timeline.
+- Doi so dien thoai, gia cuoi hoac huy don trong AdminCP bat buoc co ly do.
+- AdminCP chi hien thi trang thai ke tiep hop le va hien audit log noi bo trong chi tiet don.
 
 Lenh Zalo admin:
 

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 
 const storageDir = process.env.CP24H_STORAGE_DIR || path.join(process.cwd(), "storage");
 
@@ -33,7 +34,7 @@ export function readJsonArray<T>(fileName: string, fallback: T[]): T[] {
 
 export function writeJsonArray<T>(fileName: string, rows: T[]) {
   const filePath = resolveStoragePath(fileName);
-  const tempPath = `${filePath}.tmp`;
+  const tempPath = `${filePath}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
   fs.writeFileSync(tempPath, JSON.stringify(rows, null, 2), "utf8");
   fs.renameSync(tempPath, filePath);
 }
