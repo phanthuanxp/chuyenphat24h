@@ -15,7 +15,9 @@ permissions:
 jobs:
   deploy:
     name: Validate and deploy
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: production
     env:
       APP_DIR: /var/www/chuyenphat24h
       APP_NAME: chuyenphat24h
@@ -38,6 +40,7 @@ jobs:
         run: |
           npm ci
           npm run typecheck
+          npm test
           npm run build
 
       - name: Configure SSH
@@ -53,7 +56,7 @@ jobs:
       - name: Deploy on VPS
         run: |
           ssh -i ~/.ssh/id_ed25519 -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" \
-            "APP_DIR='$APP_DIR' BRANCH='main' APP_NAME='$APP_NAME' bash '$APP_DIR/deploy/deploy.sh'"
+            "APP_DIR='$APP_DIR' BRANCH='main' EXPECTED_SHA='$GITHUB_SHA' APP_NAME='$APP_NAME' bash '$APP_DIR/deploy/deploy.sh'"
 
       - name: Verify public health check
         run: |

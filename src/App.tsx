@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
   BarChart3,
+  BellRing,
   Bot,
   CheckCircle2,
   ChevronRight,
@@ -33,7 +34,8 @@ import {
   X,
 } from "lucide-react";
 import { ITEM_TYPE_LABELS, ItemType, OrderStatus, STATUS_LABELS } from "./lib/constants/enums";
-import type { MapsAddress, Order, PublicTrackingInfo, RouteEstimate } from "./lib/types";
+import type { MapsAddress, NotificationJob, Order, OrderAuditLog, PublicTrackingInfo, RouteEstimate } from "./lib/types";
+import { getAllowedOrderTransitions } from "./lib/orders/orderStateMachine";
 import { ThemeLanding } from "./components/ThemeLanding";
 import { BrandLogo } from "./components/BrandLogo";
 import { defaultThemeSettings, SiteThemeSettings } from "./lib/theme/themeTypes";
@@ -41,7 +43,7 @@ import { mainSeoRoutes, seoPages as defaultSeoPages, type SeoPage as SeoPageConf
 import { publicPathFor, publicRoutePaths, type PublicView } from "./lib/siteNavigation";
 
 type View = PublicView | "admin" | "seo";
-type AdminModule = "dashboard" | "orders" | "dispatch" | "zalo" | "routes" | "partners" | "customers" | "pricing" | "seo" | "theme" | "settings";
+type AdminModule = "dashboard" | "orders" | "dispatch" | "notifications" | "zalo" | "routes" | "partners" | "customers" | "pricing" | "seo" | "theme" | "settings";
 type AdminOrderEditPayload = Partial<
   Pick<
     Order,
@@ -81,6 +83,7 @@ const adminModules: Array<{ id: AdminModule; label: string; icon: React.ElementT
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "orders", label: "Đơn hàng", icon: ClipboardList },
   { id: "dispatch", label: "Điều phối Zalo", icon: Bot },
+  { id: "notifications", label: "Thông báo", icon: BellRing },
   { id: "zalo", label: "Nhóm Zalo tuyến", icon: MessageSquare },
   { id: "routes", label: "Tuyến xe", icon: RouteIcon },
   { id: "partners", label: "Đối tác đội xe", icon: UserRoundCheck },
@@ -92,7 +95,6 @@ const adminModules: Array<{ id: AdminModule; label: string; icon: React.ElementT
 
 const itemOptions = Object.values(ItemType);
 adminModules.splice(adminModules.length - 1, 0, { id: "theme", label: "Theme web", icon: Sparkles });
-const adminOrderStatusOptions = Array.from(new Set(Object.values(OrderStatus)));
 const phoneHref = "tel:0345076789";
 const viewPathMap: Record<string, View> = {
   ...Object.fromEntries(Object.entries(publicRoutePaths).map(([view, path]) => [path, view as PublicView])),
@@ -481,6 +483,7 @@ function OrderPage() {
 }
 
 function QuickOrderForm({ compact = false }: { compact?: boolean }) {
+  const idempotencyKey = useRef(crypto.randomUUID());
   const [pickupQuery, setPickupQuery] = useState("Cau Giay, Ha Noi");
   const [deliveryQuery, setDeliveryQuery] = useState("TP Bac Ninh, Bac Ninh");
   const [pickupSuggestions, setPickupSuggestions] = useState<MapsAddress[]>([]);
@@ -490,6 +493,7 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
   const [itemType, setItemType] = useState<ItemType>(ItemType.DOCUMENT);
   const [expectedDeliveryTime, setExpectedDeliveryTime] = useState("Trong 2-4 giờ");
   const [customerPhone, setCustomerPhone] = useState("0912345678");
+  const [receiverPhone, setReceiverPhone] = useState("0912345678");
   const [itemDescription, setItemDescription] = useState("Ho so can giao gap");
   const [packageCount, setPackageCount] = useState(1);
   const [weight, setWeight] = useState(1);
@@ -514,6 +518,7 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
   }
 
   const orderPayload = {
+    idempotencyKey: idempotencyKey.current,
     pickupAddress: pickupQuery,
     pickupPlaceId,
     deliveryAddress: deliveryQuery,
@@ -521,6 +526,7 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
     itemType,
     expectedDeliveryTime,
     customerPhone,
+    receiverPhone,
     itemDescription,
     packageCount,
     weight,
@@ -571,6 +577,7 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
       });
       if (!res.ok) throw new Error("Không thể tạo đơn");
       setCreatedOrder(await res.json());
+      idempotencyKey.current = crypto.randomUUID();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Có lỗi xảy ra");
     } finally {
@@ -615,6 +622,10 @@ function QuickOrderForm({ compact = false }: { compact?: boolean }) {
         <label className="block sm:col-span-2">
           <FieldLabel>Số điện thoại/Zalo khách</FieldLabel>
           <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} className="mt-1 h-[48px] w-full rounded-lg border-[1.5px] border-[#CBD5E1] bg-[#FFFFFF] px-3 text-sm font-semibold text-[#111827] outline-none transition focus:border-brand-orange-500" />
+        </label>
+        <label className="block sm:col-span-2">
+          <FieldLabel>Số điện thoại người nhận</FieldLabel>
+          <input value={receiverPhone} onChange={(event) => setReceiverPhone(event.target.value)} className="mt-1 h-[48px] w-full rounded-lg border-[1.5px] border-[#CBD5E1] bg-[#FFFFFF] px-3 text-sm font-semibold text-[#111827] outline-none transition focus:border-brand-orange-500" />
         </label>
         <label className="block sm:col-span-2">
           <FieldLabel>Mo ta hang hoa</FieldLabel>
@@ -1045,6 +1056,7 @@ function AdminPage({
           {activeModule === "dashboard" && <AdminDashboard orders={orders} />}
           {activeModule === "orders" && <AdminOrders orders={orders} selectedOrderId={selectedOrderId} setSelectedOrderId={setSelectedOrderId} selectedOrder={selectedOrder} onApprove={approveSelectedOrder} onAssignVehicle={assignNearestVehicleToSelectedOrder} onSave={saveSelectedOrder} onUnauthorized={handleUnauthorized} />}
           {activeModule === "dispatch" && <AdminDispatch selectedOrder={selectedOrder} preview={preview} previewDispatch={previewDispatch} sendDispatch={sendDispatch} />}
+          {activeModule === "notifications" && <AdminNotificationCenter onUnauthorized={handleUnauthorized} />}
           {activeModule === "zalo" && <AdminPlaceholder title="Nhóm Zalo tuyến" icon={MessageSquare} rows={["CP24H Hà Nội - Bắc Ninh", "CP24H Hà Nội - Hải Phòng", "CP24H Tây Bắc - Lào Cai", "CP24H Hàng cồng kềnh / xe máy"]} />}
           {activeModule === "routes" && <AdminPlaceholder title="Tuyến xe" icon={RouteIcon} rows={["Tuyến gần Hà Nội", "Tuyến trong ngày", "Tuyến Tây Bắc cần xác nhận", "Thanh Hóa / Nghệ An 24h"]} />}
           {activeModule === "partners" && <AdminPlaceholder title="Đối tác đội xe" icon={UserRoundCheck} rows={["Nguyễn Văn An - xe 7 chỗ", "Trần Văn Bình - xe 16 chỗ", "Ứng tuyển mới cần duyệt"]} />}
@@ -1912,6 +1924,8 @@ function OrderDetail({
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState("");
   const [editMessage, setEditMessage] = useState("");
+  const [auditLogs, setAuditLogs] = useState<OrderAuditLog[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [editForm, setEditForm] = useState({
     senderName: "",
     senderPhone: "",
@@ -1952,6 +1966,18 @@ function OrderDetail({
     });
   }, [order?.id, order?.updatedAt, order?.finalPrice, order?.quotedPrice]);
 
+  useEffect(() => {
+    if (!order?.id) {
+      setAuditLogs([]);
+      return;
+    }
+    setAuditLoading(true);
+    fetch(`/api/admin/orders/${order.id}/audit`)
+      .then((res) => res.ok ? res.json() : [])
+      .then((logs: OrderAuditLog[]) => setAuditLogs(logs))
+      .finally(() => setAuditLoading(false));
+  }, [order?.id, order?.updatedAt]);
+
   async function submitOrderEdit(event: React.FormEvent) {
     event.preventDefault();
     setSavingEdit(true);
@@ -1976,6 +2002,12 @@ function OrderDetail({
   if (!order) {
     return <div className="rounded border border-slate-200 bg-white p-5 text-sm font-semibold text-slate-500">Chọn một đơn để xem chi tiết.</div>;
   }
+  const allowedStatusOptions = Array.from(new Set([order.status, ...getAllowedOrderTransitions(order.status)]));
+  const requiresOperationNote =
+    editForm.senderPhone !== order.senderPhone ||
+    editForm.receiverPhone !== order.receiverPhone ||
+    Number(editForm.finalPrice || 0) !== Number(order.finalPrice || 0) ||
+    (editForm.status === OrderStatus.CANCELLED && order.status !== OrderStatus.CANCELLED);
   return (
     <div className="h-fit rounded border border-slate-200 bg-white p-5">
       <h2 className="font-black">Chi tiết đơn</h2>
@@ -2047,7 +2079,7 @@ function OrderDetail({
           <label className="sm:col-span-2">
             <FieldLabel>Trang thai don</FieldLabel>
             <select value={editForm.status} onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value as OrderStatus }))} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold">
-              {adminOrderStatusOptions.map((status) => (
+              {allowedStatusOptions.map((status) => (
                 <option key={status} value={status}>{STATUS_LABELS[status]}</option>
               ))}
             </select>
@@ -2057,8 +2089,8 @@ function OrderDetail({
             <textarea value={editForm.customerTrackingNote} onChange={(event) => setEditForm((current) => ({ ...current, customerTrackingNote: event.target.value }))} rows={2} className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
           </label>
           <label className="sm:col-span-2">
-            <FieldLabel>Them ghi chu noi bo</FieldLabel>
-            <textarea value={editForm.operationNote} onChange={(event) => setEditForm((current) => ({ ...current, operationNote: event.target.value }))} rows={3} placeholder="Vi du: Khach doi gio lay hang, da goi xac nhan..." className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
+            <FieldLabel>{requiresOperationNote ? "Ly do thay doi (bat buoc)" : "Them ghi chu noi bo"}</FieldLabel>
+            <textarea required={requiresOperationNote} value={editForm.operationNote} onChange={(event) => setEditForm((current) => ({ ...current, operationNote: event.target.value }))} rows={3} placeholder="Vi du: Khach doi gio lay hang, da goi xac nhan..." className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm font-semibold" />
           </label>
         </div>
         {editError && <div className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{editError}</div>}
@@ -2085,6 +2117,30 @@ function OrderDetail({
           </div>
         </div>
       )}
+      <div className="mt-4 rounded border border-slate-200 bg-white p-4">
+        <h3 className="text-sm font-black">Audit log nội bộ</h3>
+        {auditLoading ? <p className="mt-3 text-xs font-bold text-slate-500">Đang tải audit log...</p> : (
+          <div className="mt-3 max-h-[420px] space-y-3 overflow-auto">
+            {auditLogs.slice(0, 20).map((log) => (
+              <div key={log.id} className="rounded border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-black text-slate-900">{log.action} · {log.source} · {log.actor}</p>
+                  <span className="text-[11px] font-bold text-slate-500">{new Date(log.createdAt).toLocaleString("vi-VN")}</span>
+                </div>
+                {log.reason && <p className="mt-1 text-xs font-semibold text-amber-800">Lý do: {log.reason}</p>}
+                <div className="mt-2 space-y-1">
+                  {log.changes.map((change, index) => (
+                    <p key={`${log.id}-${change.field}-${index}`} className="break-words text-[11px] text-slate-600">
+                      <strong>{change.field}:</strong> {JSON.stringify(change.before) || "—"} → {JSON.stringify(change.after) || "—"}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {!auditLogs.length && <p className="text-xs font-bold text-slate-500">Chưa có audit log.</p>}
+          </div>
+        )}
+      </div>
       {Boolean(order.itemImages?.length) && (
         <div className="mt-4">
           <FieldLabel>Hinh anh san pham</FieldLabel>
@@ -2161,6 +2217,116 @@ function AdminDispatch({
           <div className="mt-4 rounded border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm font-semibold text-slate-500">Bấm preview để tạo nội dung bán đơn.</div>
         )}
       </div>
+    </div>
+  );
+}
+
+function InfoCard({ label, value }: { label: string; value: string }) {
+  return <div className="rounded border border-slate-200 bg-slate-50 p-4"><p className="text-xs font-black uppercase text-slate-500">{label}</p><p className="mt-1 text-2xl font-black text-slate-950">{value}</p></div>;
+}
+
+function AdminNotificationCenter({ onUnauthorized }: { onUnauthorized: () => void }) {
+  const [jobs, setJobs] = useState<NotificationJob[]>([]);
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [channelFilter, setChannelFilter] = useState("ALL");
+  const [loading, setLoading] = useState(true);
+  const [retryingId, setRetryingId] = useState("");
+  const [error, setError] = useState("");
+
+  const loadJobs = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({ status: statusFilter, channel: channelFilter });
+      const res = await fetch(`/api/admin/notification-jobs?${params}`);
+      if (res.status === 401) return onUnauthorized();
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Không tải được notification outbox.");
+      setJobs(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Không tải được notification outbox.");
+    } finally {
+      setLoading(false);
+    }
+  }, [channelFilter, onUnauthorized, statusFilter]);
+
+  useEffect(() => {
+    void loadJobs();
+  }, [loadJobs]);
+
+  async function retryJob(jobId: string) {
+    setRetryingId(jobId);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/notification-jobs/${jobId}/retry`, { method: "POST" });
+      if (res.status === 401) return onUnauthorized();
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Không thể gửi lại thông báo.");
+      await loadJobs();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Không thể gửi lại thông báo.");
+    } finally {
+      setRetryingId("");
+    }
+  }
+  const failedCount = jobs.filter((job) => ["FAILED", "DEAD_LETTER"].includes(job.status)).length;
+  const queuedCount = jobs.filter((job) => ["QUEUED", "PROCESSING"].includes(job.status)).length;
+  const sentCount = jobs.filter((job) => job.status === "SENT").length;
+
+  return (
+    <div className="rounded border border-slate-200 bg-white p-5">
+      <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <BellRing className="h-5 w-5 text-red-600" />
+            <h2 className="font-black">Notification Outbox</h2>
+          </div>
+          <p className="mt-2 text-sm font-semibold text-slate-600">Theo dõi hàng đợi Zalo/Telegram, lỗi gửi và retry thủ công.</p>
+        </div>
+        <button onClick={() => void loadJobs()} className="rounded border border-slate-300 px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50">Làm mới</button>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <InfoCard label="Đang chờ" value={String(queuedCount)} />
+        <InfoCard label="Đã gửi" value={String(sentCount)} />
+        <InfoCard label="Lỗi / Dead letter" value={String(failedCount)} />
+      </div>
+
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-bold">
+          {["ALL", "QUEUED", "PROCESSING", "SENT", "FAILED", "DEAD_LETTER"].map((status) => <option key={status}>{status}</option>)}
+        </select>
+        <select value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)} className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-bold">
+          {["ALL", "TELEGRAM_ADMIN", "ZALO_ADMIN", "ZALO_CUSTOMER"].map((channel) => <option key={channel}>{channel}</option>)}
+        </select>
+      </div>
+
+      {error && <p className="mt-4 rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}
+      {loading ? <p className="py-10 text-center text-sm font-bold text-slate-500">Đang tải hàng đợi...</p> : (
+        <div className="mt-5 overflow-x-auto">
+          <table className="w-full min-w-[900px] text-left text-sm">
+            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+              <tr><th className="p-3">Trạng thái</th><th className="p-3">Kênh</th><th className="p-3">Đơn</th><th className="p-3">Số lần thử</th><th className="p-3">Cập nhật</th><th className="p-3">Lỗi cuối</th><th className="p-3 text-right">Thao tác</th></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {jobs.map((job) => (
+                <tr key={job.id}>
+                  <td className="p-3"><span className={`rounded px-2 py-1 text-xs font-black ${job.status === "SENT" ? "bg-emerald-100 text-emerald-800" : ["FAILED", "DEAD_LETTER"].includes(job.status) ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"}`}>{job.status}</span></td>
+                  <td className="p-3 font-bold">{job.channel}</td>
+                  <td className="p-3 font-black text-amber-700">{job.orderCode || "—"}</td>
+                  <td className="p-3">{job.attempts}/{job.maxAttempts}</td>
+                  <td className="p-3 text-xs text-slate-600">{new Date(job.updatedAt).toLocaleString("vi-VN")}</td>
+                  <td className="max-w-[280px] truncate p-3 text-xs text-red-700" title={job.lastError}>{job.lastError || "—"}</td>
+                  <td className="p-3 text-right">
+                    {["FAILED", "DEAD_LETTER"].includes(job.status) && <button onClick={() => void retryJob(job.id)} disabled={retryingId === job.id} className="rounded bg-slate-950 px-3 py-2 text-xs font-black text-white disabled:opacity-50">{retryingId === job.id ? "Đang gửi..." : "Gửi lại"}</button>}
+                  </td>
+                </tr>
+              ))}
+              {!jobs.length && <tr><td colSpan={7} className="p-8 text-center font-bold text-slate-500">Không có notification job phù hợp.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

@@ -20,4 +20,4 @@ In **Settings → Secrets and variables → Actions**, add:
 | `VPS_PORT` | SSH port; leave as `22` if unchanged |
 | `CP24H_HEALTHCHECK_URL` | `https://chuyenphat24h.com/api/health` |
 
-After the secrets exist, merge the feature branch to `main`. The workflow will validate TypeScript and production build before connecting to the VPS. It then runs `deploy/deploy.sh`, which pulls `main`, builds, reloads PM2, and checks the local API health endpoint.
+After the secrets exist, merge the feature branch to `main`. Configure the GitHub `production` environment with required reviewers. The workflow only deploys when its ref is `main`, validates TypeScript, tests and the production build, then passes the exact validated commit SHA to the VPS. `deploy/deploy.sh` checks out that SHA, reloads PM2, verifies local health and rolls back to the previous commit if deployment fails.

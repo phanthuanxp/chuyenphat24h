@@ -14,7 +14,7 @@ import { getZaloGroups } from "./src/lib/zalo/zaloGroupService";
 import { handleZaloAdminCommand, handleZaloCustomerReply } from "./src/lib/zalo/zaloWorkflowService";
 import { getPartnerApplications, createPartnerApplication, hydratePartnerStorage } from "./src/lib/partners/driverPartnerService";
 import { createDriverCandidateFromPartner, findNearestVehicleForOrder } from "./src/lib/partners/nearestVehicleService";
-import { getNotificationLogs, getNotificationRuntimeStatus, hydrateNotificationStorage, logTelegramCommand, mockSendCustomerZaloOrderApproved, mockSendCustomerZaloVehicleAssigned } from "./src/lib/notification/notificationService";
+import { getNotificationJobs, getNotificationLogs, getNotificationRuntimeStatus, hydrateNotificationStorage, logTelegramCommand, mockSendCustomerZaloOrderApproved, mockSendCustomerZaloVehicleAssigned, processNotificationOutbox, retryNotificationJob, startNotificationWorker } from "./src/lib/notification/notificationService";
 import { DispatchStatus, OrderStatus, STATUS_LABELS, Visibility } from "./src/lib/constants/enums";
 import { mockRoutes } from "./src/data/mockRoutes";
 import { mockPricingRules } from "./src/data/mockPricing";
@@ -24,6 +24,9 @@ import { getSeoPages, hydrateSeoStorage, resetSeoPages, updateSeoPage, updateSeo
 import { initializePersistentStore, isDatabaseEnabled } from "./src/lib/storage/persistentStore";
 import type { Order } from "./src/lib/types";
 import { getThemeSettings, hydrateThemeStorage, resetThemeSettings, updateThemeSettings } from "./src/lib/theme/themeService";
+import { isTrustedZaloAdmin, safeSecretMatches, validateProductionConfiguration } from "./src/lib/security/webhookSecurity";
+import { getOrderAuditLogs, hydrateOrderAuditStorage, type OrderAuditContext } from "./src/lib/audit/orderAuditService";
+import { canTransitionOrder } from "./src/lib/orders/orderStateMachine";
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -35,6 +38,7 @@ const validOrderStatuses = new Set(Object.values(OrderStatus));
 const editableOrderTextFields = [
   "senderName",
   "senderPhone",
+  "customerZaloUserId",
   "pickupAddress",
   "receiverName",
   "receiverPhone",
@@ -44,7 +48,32 @@ const editableOrderTextFields = [
 ] as const;
 const editableOrderNumberFields = ["packageCount", "weight", "quotedPrice", "finalPrice"] as const;
 
+type RateLimitEntry = { count: number; resetAt: number };
+const rateLimitBuckets = new Map<string, RateLimitEntry>();
+
+function rateLimit(name: string, maxRequests: number, windowMs: number) {
+  return (req: Request, res: Response, next: () => void) => {
+    const now = Date.now();
+    if (rateLimitBuckets.size > 10_000) {
+      for (const [bucketKey, bucket] of rateLimitBuckets) {
+        if (bucket.resetAt <= now) rateLimitBuckets.delete(bucketKey);
+      }
+    }
+    const key = `${name}:${req.ip}`;
+    const current = rateLimitBuckets.get(key);
+    const entry = !current || current.resetAt <= now ? { count: 0, resetAt: now + windowMs } : current;
+    entry.count += 1;
+    rateLimitBuckets.set(key, entry);
+    res.setHeader("RateLimit-Limit", String(maxRequests));
+    res.setHeader("RateLimit-Remaining", String(Math.max(0, maxRequests - entry.count)));
+    res.setHeader("RateLimit-Reset", String(Math.ceil(entry.resetAt / 1000)));
+    if (entry.count > maxRequests) return res.status(429).json({ message: "Too many requests. Please try again later." });
+    next();
+  };
+}
+
 app.use(express.json({ limit: "10mb" }));
+if (process.env.NODE_ENV === "production") app.set("trust proxy", 1);
 
 function siteUrl() {
   return String(process.env.SITE_URL || process.env.PUBLIC_APP_URL || "https://chuyenphat24h.com").replace(/\/+$/, "");
@@ -327,6 +356,11 @@ function findOrder(orderIdOrCode: string) {
   return getOrders().find((item) => item.id === orderIdOrCode || item.orderCode.toLowerCase() === orderIdOrCode.toLowerCase());
 }
 
+function auditContextForActor(actor: string, reason?: string, action?: string): OrderAuditContext {
+  const source = actor === "telegram" ? "TELEGRAM" : actor.startsWith("zalo") ? "ZALO_ADMIN" : "ADMINCP";
+  return { source, actor, reason, action };
+}
+
 function approveOrder(orderIdOrCode: string, finalPrice: number, note?: string, actor = "admin") {
   const order = findOrder(orderIdOrCode);
   if (!order) return null;
@@ -336,7 +370,7 @@ function approveOrder(orderIdOrCode: string, finalPrice: number, note?: string, 
     dispatchStatus: DispatchStatus.READY_TO_DISPATCH,
     customerTrackingNote: `Don da duoc dieu hanh duyet. Gia cuoc chinh thuc: ${finalPrice.toLocaleString("vi-VN")}d. He thong dang tim xe phu hop.`,
     internalNotes: [order.internalNotes, note].filter(Boolean).join("\n"),
-  });
+  }, auditContextForActor(actor, note, "ORDER_APPROVED"));
   addTimelineEvent(order.id, {
     eventType: "ORDER_APPROVED",
     title: "Don da duoc duyet",
@@ -356,12 +390,12 @@ function assignNearestVehicle(orderIdOrCode: string, actor = "admin") {
     const updated = updateOrder(order.id, {
       dispatchStatus: DispatchStatus.NO_DRIVER_FOUND,
       customerTrackingNote: "Dieu hanh dang tiep tuc tim xe phu hop cho don hang.",
-    });
+    }, auditContextForActor(actor, "Khong tim thay xe phu hop", "VEHICLE_SEARCH_FAILED"));
     return { order: updated, vehicle: null };
   }
   const candidate = createDriverCandidateFromPartner(vehicle);
-  updateOrder(order.id, { driverCandidates: [candidate, ...order.driverCandidates] });
-  const assigned = assignDriverToOrder(order.id, candidate);
+  updateOrder(order.id, { driverCandidates: [candidate, ...order.driverCandidates] }, auditContextForActor(actor, undefined, "DRIVER_CANDIDATE_ADDED"));
+  const assigned = assignDriverToOrder(order.id, candidate, auditContextForActor(actor, undefined, "DRIVER_ASSIGNED"));
   if (assigned) {
     addTimelineEvent(order.id, {
       eventType: "VEHICLE_ASSIGNED",
@@ -373,7 +407,7 @@ function assignNearestVehicle(orderIdOrCode: string, actor = "admin") {
     const latest = updateOrder(order.id, {
       assignedDriverVisibleToCustomer: true,
       customerTrackingNote: "Da co xe nhan don. Thong tin xe da duoc gui qua Zalo cua khach.",
-    });
+    }, auditContextForActor(actor, undefined, "CUSTOMER_DRIVER_VISIBILITY_UPDATED"));
     if (latest) mockSendCustomerZaloVehicleAssigned(latest);
     return { order: findOrder(order.id), vehicle };
   }
@@ -424,6 +458,10 @@ function updateAdminOrder(orderIdOrCode: string, payload: Record<string, unknown
   }
 
   const operationNote = String(payload.operationNote || "").trim();
+  const sensitiveChange = changedFields.some((field) => ["senderPhone", "receiverPhone", "finalPrice"].includes(field)) || updates.status === OrderStatus.CANCELLED;
+  if (sensitiveChange && !operationNote) {
+    return { order: null, error: "Operation note is required for phone, final price or cancellation changes" };
+  }
   if (operationNote) {
     const noteLine = `[${new Date().toLocaleString("vi-VN")}] ${actor}: ${operationNote}`;
     updates.internalNotes = [order.internalNotes, noteLine].filter(Boolean).join("\n");
@@ -434,7 +472,11 @@ function updateAdminOrder(orderIdOrCode: string, payload: Record<string, unknown
     return { order, error: null };
   }
 
-  const updated = updateOrder(order.id, updates);
+  if (updates.status && !canTransitionOrder(order.status, updates.status as OrderStatus)) {
+    return { order: null, error: `Invalid order status transition: ${order.status} -> ${updates.status}` };
+  }
+
+  const updated = updateOrder(order.id, updates, auditContextForActor(actor, operationNote, "ADMIN_ORDER_UPDATED"));
   if (!updated) return { order: null, error: "Order not found" };
 
   if (updates.status) {
@@ -555,21 +597,14 @@ function extractZaloSender(body: Record<string, unknown>) {
   ).trim();
 }
 
-function isZaloAdminSender(sender: string) {
-  const ids = String(process.env.ZALO_ADMIN_USER_IDS || process.env.ZALO_ADMIN_USER_ID || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return ids.length ? ids.includes(sender) : false;
-}
-
 function asyncHandler<TReq extends Request = Request>(
   handler: (req: TReq, res: Response) => Promise<unknown>,
 ) {
   return (req: TReq, res: Response) => {
     handler(req, res).catch((error) => {
       console.error(error);
-      res.status(500).json({ message: error instanceof Error ? error.message : "Internal server error" });
+      const statusCode = Number((error as { statusCode?: number })?.statusCode) || 500;
+      res.status(statusCode).json({ message: error instanceof Error ? error.message : "Internal server error" });
     });
   };
 }
@@ -623,7 +658,7 @@ app.get("/api/theme-settings", (_req, res) => {
   res.json(getThemeSettings());
 });
 
-app.post("/api/admin/login", (req, res) => {
+app.post("/api/admin/login", rateLimit("admin-login", 10, 15 * 60 * 1000), (req, res) => {
   const { username, password } = req.body;
   if (username !== adminUsername || password !== adminPassword) {
     return res.status(401).json({ message: "Sai tai khoan hoac mat khau admin." });
@@ -656,11 +691,11 @@ app.post("/api/maps/distance", asyncHandler(async (req, res) => {
   res.json(await mapsService.calculateDistance({ origin, destination, originProvince, destinationProvince }));
 }));
 
-app.post("/api/orders/estimate", asyncHandler(async (req, res) => {
+app.post("/api/orders/estimate", rateLimit("order-estimate", 60, 60 * 1000), asyncHandler(async (req, res) => {
   res.json(await classifyQuickOrder(req.body));
 }));
 
-app.post("/api/orders/quick-create", asyncHandler(async (req, res) => {
+app.post("/api/orders/quick-create", rateLimit("order-create", 10, 60 * 1000), asyncHandler(async (req, res) => {
   const order = await createQuickOrderFromHomeForm(req.body);
   res.status(201).json(order);
 }));
@@ -681,6 +716,31 @@ app.get("/api/notification/logs", requireAdmin, (_req, res) => {
   res.json(getNotificationLogs());
 });
 
+app.get("/api/admin/notification-jobs", requireAdmin, (req, res) => {
+  const status = String(req.query.status || "");
+  const channel = String(req.query.channel || "");
+  const orderCode = normalizeText(req.query.orderCode);
+  const jobs = getNotificationJobs().filter((job) =>
+    (!status || status === "ALL" || job.status === status) &&
+    (!channel || channel === "ALL" || job.channel === channel) &&
+    (!orderCode || normalizeText(job.orderCode).includes(orderCode)),
+  );
+  res.json(jobs);
+});
+
+app.get("/api/admin/orders/:id/audit", requireAdmin, (req, res) => {
+  const order = findOrder(req.params.id);
+  if (!order) return res.status(404).json({ message: "Order not found" });
+  res.json(getOrderAuditLogs(order.id));
+});
+
+app.post("/api/admin/notification-jobs/:id/retry", requireAdmin, asyncHandler(async (req, res) => {
+  const job = retryNotificationJob(req.params.id);
+  if (!job) return res.status(404).json({ message: "Notification job not found" });
+  await processNotificationOutbox({ maxJobs: 1, jobId: job.id });
+  res.json(getNotificationJobs().find((item) => item.id === job.id));
+}));
+
 app.get("/api/admin/theme-settings", requireAdmin, (_req, res) => {
   res.json(getThemeSettings());
 });
@@ -698,7 +758,9 @@ app.post("/api/admin/orders/:id/approve", requireAdmin, (req, res) => {
   if (!Number.isFinite(finalPrice) || finalPrice <= 0) {
     return res.status(400).json({ message: "finalPrice must be a positive number" });
   }
-  const order = approveOrder(req.params.id, finalPrice, req.body.note, "admin");
+  const note = String(req.body.note || "").trim();
+  if (!note) return res.status(400).json({ message: "Approval note is required" });
+  const order = approveOrder(req.params.id, finalPrice, note, "admin");
   if (!order) return res.status(404).json({ message: "Order not found" });
   res.json(order);
 });
@@ -712,15 +774,16 @@ app.post("/api/admin/orders/:id/assign-nearest-vehicle", requireAdmin, (req, res
 app.patch("/api/admin/orders/:id/edit", requireAdmin, (req, res) => {
   const result = updateAdminOrder(req.params.id, req.body, "admin");
   if (result.error) {
-    return res.status(result.error === "Order not found" ? 404 : 400).json({ message: result.error });
+    const statusCode = result.error === "Order not found" ? 404 : result.error.startsWith("Invalid order status transition") ? 409 : 400;
+    return res.status(statusCode).json({ message: result.error });
   }
   res.json(result.order);
 });
 
-app.post("/api/telegram/webhook", (req, res) => {
+app.post("/api/telegram/webhook", rateLimit("telegram-webhook", 120, 60 * 1000), (req, res) => {
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
   const receivedSecret = String(req.query.secret || req.headers["x-telegram-webhook-secret"] || "");
-  if (expectedSecret && expectedSecret !== receivedSecret) {
+  if (!safeSecretMatches(expectedSecret, receivedSecret)) {
     return res.status(401).json({ message: "Invalid Telegram webhook secret" });
   }
 
@@ -751,10 +814,10 @@ app.post("/api/telegram/webhook", (req, res) => {
   return res.status(400).json({ message: "Unsupported Telegram command" });
 });
 
-app.post("/api/zalo/webhook", asyncHandler(async (req, res) => {
+app.post("/api/zalo/webhook", rateLimit("zalo-webhook", 120, 60 * 1000), asyncHandler(async (req, res) => {
   const expectedSecret = process.env.ZALO_WEBHOOK_SECRET;
   const receivedSecret = String(req.query.secret || req.headers["x-zalo-webhook-secret"] || "");
-  if (expectedSecret && expectedSecret !== receivedSecret) {
+  if (!safeSecretMatches(expectedSecret, receivedSecret)) {
     return res.status(401).json({ message: "Invalid Zalo webhook secret" });
   }
 
@@ -762,7 +825,7 @@ app.post("/api/zalo/webhook", asyncHandler(async (req, res) => {
   const sender = extractZaloSender(req.body);
   if (!text) return res.status(400).json({ message: "Missing Zalo message text" });
 
-  const isAdmin = isZaloAdminSender(sender) || req.body.role === "admin" || req.body.isAdmin === true;
+  const isAdmin = isTrustedZaloAdmin(sender, process.env.ZALO_ADMIN_USER_IDS || process.env.ZALO_ADMIN_USER_ID);
   const result = isAdmin
     ? await handleZaloAdminCommand(text, sender || "zalo-admin")
     : await handleZaloCustomerReply(text, sender || "zalo-customer");
@@ -786,6 +849,8 @@ app.get("/api/admin/summary", requireAdmin, (_req, res) => {
     inTransit: orders.filter((order) => ["IN_TRANSIT", "DELIVERY_IN_PROGRESS"].includes(order.status)).length,
     completed: orders.filter((order) => order.status === "DELIVERED").length,
     issues: orders.filter((order) => order.status === "ISSUE_REPORTED").length,
+    notificationQueued: getNotificationJobs().filter((job) => job.status === "QUEUED").length,
+    notificationFailed: getNotificationJobs().filter((job) => ["FAILED", "DEAD_LETTER"].includes(job.status)).length,
     zaloGroups: getZaloGroups().length,
     partners: mockPartners.length,
     pricingRules: mockPricingRules.length,
@@ -809,12 +874,13 @@ app.get("/api/admin/workspace", requireAdmin, (_req, res) => {
 app.patch("/api/orders/:id", requireAdmin, (req, res) => {
   const result = updateAdminOrder(req.params.id, req.body, "admin");
   if (result.error) {
-    return res.status(result.error === "Order not found" ? 404 : 400).json({ message: result.error });
+    const statusCode = result.error === "Order not found" ? 404 : result.error.startsWith("Invalid order status transition") ? 409 : 400;
+    return res.status(statusCode).json({ message: result.error });
   }
   res.json(result.order);
 });
 
-app.post("/api/orders/track", (req, res) => {
+app.post("/api/orders/track", rateLimit("order-track", 30, 60 * 1000), (req, res) => {
   const { orderCode, phone } = req.body;
   if (!orderCode || !phone) {
     return res.status(400).json({ message: "Nhap ma don va so dien thoai de tra cuu." });
@@ -844,7 +910,7 @@ app.post("/api/dispatch/send", requireAdmin, (req, res) => {
   const order = getOrders().find((item) => item.id === req.body.orderId || item.orderCode === req.body.orderCode);
   if (!order) return res.status(404).json({ message: "Order not found" });
   const result = sendOrderToZaloGroups(order, "ADMIN");
-  updateOrder(order.id, result.updates);
+  updateOrder(order.id, result.updates, { source: "ADMINCP", actor: "admin", action: "ORDER_DISPATCHED_TO_ZALO" });
   res.json(result);
 });
 
@@ -915,16 +981,25 @@ app.post("/api/admin/seo-pages/reset", requireAdmin, (_req, res) => {
   res.json(resetSeoPages());
 });
 
+app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) => void) => {
+  const statusCode = Number((error as { statusCode?: number })?.statusCode) || 500;
+  console.error(error);
+  res.status(statusCode).json({ message: error instanceof Error ? error.message : "Internal server error" });
+});
+
 async function setupApp() {
+  validateProductionConfiguration(process.env);
   await initializePersistentStore();
   await Promise.all([
     hydrateOrderStorage(),
+    hydrateOrderAuditStorage(),
     hydrateDispatchStorage(),
     hydrateNotificationStorage(),
     hydratePartnerStorage(),
     hydrateThemeStorage(),
     hydrateSeoStorage(),
   ]);
+  startNotificationWorker();
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

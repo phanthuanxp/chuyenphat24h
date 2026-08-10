@@ -1,8 +1,12 @@
-import type { NotificationLog, Order } from "../types";
+import crypto from "node:crypto";
+import type { NotificationJob, NotificationLog, Order } from "../types";
 import { readJsonArray, writeJsonArray } from "../storage/jsonStore";
 import { loadPersistentCollection, persistCollection } from "../storage/persistentStore";
 
 let notificationLogs = readJsonArray<NotificationLog>("notificationLogs.json", []);
+let notificationJobs = readJsonArray<NotificationJob>("notificationJobs.json", []);
+let workerRunning = false;
+let workerTimer: NodeJS.Timeout | undefined;
 
 function persistNotificationLogs() {
   writeJsonArray("notificationLogs.json", notificationLogs);
@@ -11,7 +15,13 @@ function persistNotificationLogs() {
 
 export async function hydrateNotificationStorage() {
   notificationLogs = await loadPersistentCollection<NotificationLog>("notificationLogs", notificationLogs);
+  notificationJobs = await loadPersistentCollection<NotificationJob>("notificationJobs", notificationJobs);
+  const now = new Date().toISOString();
+  notificationJobs = notificationJobs.map((job) => job.status === "PROCESSING"
+    ? { ...job, status: "QUEUED", nextAttemptAt: now, updatedAt: now }
+    : job);
   persistNotificationLogs();
+  persistNotificationJobs();
 }
 
 function createNotificationLog(payload: Omit<NotificationLog, "id" | "createdAt" | "status"> & { status?: NotificationLog["status"] }) {
@@ -110,6 +120,11 @@ async function sendZaloMessage(recipient: string, message: string) {
   }
 }
 
+function persistNotificationJobs() {
+  writeJsonArray("notificationJobs.json", notificationJobs);
+  persistCollection("notificationJobs", notificationJobs);
+}
+
 function formatMoney(value?: number) {
   return value ? `${value.toLocaleString("vi-VN")}d` : "cho admin quyet dinh";
 }
@@ -118,12 +133,135 @@ export function getNotificationLogs() {
   return notificationLogs;
 }
 
+export function getNotificationJobs() {
+  return notificationJobs;
+}
+
 export function getNotificationRuntimeStatus() {
   return {
     telegram: isTelegramLiveEnabled() ? "live" : "mock",
     zaloAdmin: isZaloLiveEnabled() ? "live" : "mock",
     zaloCustomer: isZaloLiveEnabled() ? "live" : "mock",
   };
+}
+
+type EnqueueNotificationInput = Pick<NotificationJob, "channel" | "eventType" | "message"> &
+  Partial<Pick<NotificationJob, "orderId" | "orderCode" | "recipient" | "fallbackRecipient" | "maxAttempts">>;
+
+export function enqueueNotification(input: EnqueueNotificationInput) {
+  const digest = crypto.createHash("sha256")
+    .update([input.channel, input.eventType, input.orderId || "", input.recipient || "", input.message].join("|"))
+    .digest("hex");
+  const existing = notificationJobs.find((job) => job.idempotencyKey === digest);
+  if (existing) return existing;
+
+  const now = new Date().toISOString();
+  const job: NotificationJob = {
+    ...input,
+    id: `NJOB-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`,
+    idempotencyKey: digest,
+    status: "QUEUED",
+    attempts: 0,
+    maxAttempts: input.maxAttempts || 5,
+    nextAttemptAt: now,
+    createdAt: now,
+    updatedAt: now,
+  };
+  notificationJobs = [job, ...notificationJobs];
+  persistNotificationJobs();
+  return job;
+}
+
+function updateNotificationJob(id: string, updates: Partial<NotificationJob>) {
+  notificationJobs = notificationJobs.map((job) => job.id === id
+    ? { ...job, ...updates, updatedAt: new Date().toISOString() }
+    : job);
+  persistNotificationJobs();
+  return notificationJobs.find((job) => job.id === id);
+}
+
+async function deliverNotificationJob(job: NotificationJob) {
+  if (job.channel === "TELEGRAM_ADMIN") return sendTelegramAdminMessage(job.message);
+  if (job.channel === "ZALO_ADMIN") return sendZaloMessage(job.recipient || "", job.message);
+  if (job.channel === "ZALO_CUSTOMER") {
+    if (isZaloLiveEnabled() && !job.recipient) {
+      return { ok: false, status: "FAILED" as NotificationLog["status"], error: "Customer Zalo user ID is not linked to this order" };
+    }
+    return sendZaloMessage(job.recipient || job.fallbackRecipient || "", job.message);
+  }
+  return { ok: true, status: "MOCK_SENT" as NotificationLog["status"] };
+}
+
+async function processNotificationJob(job: NotificationJob, now = new Date()) {
+  const attempts = job.attempts + 1;
+  updateNotificationJob(job.id, { status: "PROCESSING", attempts, lastAttemptAt: now.toISOString(), lastError: undefined });
+  const result = await deliverNotificationJob(job);
+  createNotificationLog({
+    channel: job.channel,
+    eventType: job.eventType,
+    orderId: job.orderId,
+    orderCode: job.orderCode,
+    recipient: job.recipient || job.fallbackRecipient,
+    message: result.error ? `${job.message}\n\nDelivery error: ${result.error}` : job.message,
+    status: result.status,
+  });
+
+  if (result.ok) {
+    return updateNotificationJob(job.id, { status: "SENT", providerStatus: result.status, lastError: undefined });
+  }
+
+  const exhausted = attempts >= job.maxAttempts;
+  const retryDelayMs = Math.min(60_000 * (2 ** Math.max(0, attempts - 1)), 30 * 60_000);
+  return updateNotificationJob(job.id, {
+    status: exhausted ? "DEAD_LETTER" : "FAILED",
+    providerStatus: result.status,
+    lastError: result.error || "Notification delivery failed",
+    nextAttemptAt: new Date(now.getTime() + retryDelayMs).toISOString(),
+  });
+}
+
+export async function processNotificationOutbox(options: { now?: Date; maxJobs?: number; jobId?: string } = {}) {
+  if (workerRunning) return [];
+  workerRunning = true;
+  try {
+    const now = options.now || new Date();
+    const dueJobs = notificationJobs
+      .filter((job) => (!options.jobId || job.id === options.jobId) && ["QUEUED", "FAILED"].includes(job.status) && new Date(job.nextAttemptAt).getTime() <= now.getTime())
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .slice(0, options.maxJobs || 10);
+    const processed: NotificationJob[] = [];
+    for (const job of dueJobs) {
+      const updated = await processNotificationJob(job, now);
+      if (updated) processed.push(updated);
+    }
+    return processed;
+  } finally {
+    workerRunning = false;
+  }
+}
+
+export function retryNotificationJob(jobId: string) {
+  const job = notificationJobs.find((item) => item.id === jobId);
+  if (!job) return null;
+  return updateNotificationJob(jobId, {
+    status: "QUEUED",
+    attempts: 0,
+    nextAttemptAt: new Date().toISOString(),
+    lastError: undefined,
+    providerStatus: undefined,
+  });
+}
+
+export function startNotificationWorker() {
+  if (workerTimer) return workerTimer;
+  const intervalMs = Math.max(1_000, Number(process.env.NOTIFICATION_WORKER_INTERVAL_MS || 5_000));
+  const runOnce = () => processNotificationOutbox().catch((error) => {
+    console.error("[notification-worker] Failed processing outbox", error);
+  });
+  void runOnce();
+  workerTimer = setInterval(() => void runOnce(), intervalMs);
+  workerTimer.unref();
+  return workerTimer;
 }
 
 export async function notifyTelegramNewOrder(order: Order) {
@@ -137,16 +275,13 @@ export async function notifyTelegramNewOrder(order: Order) {
     `AdminCP: ${getAdminUrl()}`,
     `Lenh: DUYET ${order.orderCode} <gia_cuoi> | GIA ${order.orderCode} <gia_cuoi> | TIMXE ${order.orderCode}`,
   ].join("\n");
-  const result = await sendTelegramAdminMessage(message);
-
-  return createNotificationLog({
+  return enqueueNotification({
     channel: "TELEGRAM_ADMIN",
     eventType: "NEW_ORDER",
     orderId: order.id,
     orderCode: order.orderCode,
     recipient: process.env.TELEGRAM_ADMIN_CHAT_ID || "mock-admin-chat",
-    message: result.error ? `${message}\n\nTelegram error: ${result.error}` : message,
-    status: result.status,
+    message,
   });
 }
 
@@ -164,16 +299,13 @@ export async function notifyZaloAdminNewOrder(order: Order) {
     `VD: GIA ${order.orderCode} 250000 14h hom nay`,
   ].join("\n");
   const recipient = process.env.ZALO_ADMIN_RECIPIENT || process.env.ZALO_ADMIN_USER_ID || "mock-zalo-admin";
-  const result = await sendZaloMessage(recipient, message);
-
-  return createNotificationLog({
+  return enqueueNotification({
     channel: "ZALO_ADMIN",
     eventType: "NEW_ORDER",
     orderId: order.id,
     orderCode: order.orderCode,
     recipient,
-    message: result.error ? `${message}\n\nZalo error: ${result.error}` : message,
-    status: result.status,
+    message,
   });
 }
 
@@ -188,12 +320,13 @@ export function notifyVehicleSearchStarted(order: Order) {
 }
 
 export function mockSendCustomerZaloOrderApproved(order: Order) {
-  return createNotificationLog({
+  return enqueueNotification({
     channel: "ZALO_CUSTOMER",
     eventType: "ORDER_APPROVED",
     orderId: order.id,
     orderCode: order.orderCode,
-    recipient: order.senderPhone,
+    recipient: order.customerZaloUserId,
+    fallbackRecipient: order.senderPhone,
     message: `Zalo mock: Don ${order.orderCode} da duoc duyet. Gia cuoc chinh thuc ${formatMoney(order.finalPrice)}. He thong dang tim xe phu hop.`,
   });
 }
@@ -207,15 +340,14 @@ export async function sendCustomerZaloQuote(order: Order, pickupSchedule: string
     "",
     `Neu dong y gui hang, vui long tra loi: DONG Y ${order.orderCode}`,
   ].join("\n");
-  const result = await sendZaloMessage(order.senderPhone, message);
-  return createNotificationLog({
+  return enqueueNotification({
     channel: "ZALO_CUSTOMER",
     eventType: "ORDER_QUOTED",
     orderId: order.id,
     orderCode: order.orderCode,
-    recipient: order.senderPhone,
-    message: result.error ? `${message}\n\nZalo error: ${result.error}` : message,
-    status: result.status,
+    recipient: order.customerZaloUserId,
+    fallbackRecipient: order.senderPhone,
+    message,
   });
 }
 
@@ -224,15 +356,14 @@ export async function sendCustomerZaloConfirmation(order: Order) {
     `Da xac nhan gui hang ${order.orderCode}.`,
     "Dieu hanh dang sap xep xe va se gui thong tin xe van chuyen qua Zalo.",
   ].join("\n");
-  const result = await sendZaloMessage(order.senderPhone, message);
-  return createNotificationLog({
+  return enqueueNotification({
     channel: "ZALO_CUSTOMER",
     eventType: "CUSTOMER_CONFIRMED",
     orderId: order.id,
     orderCode: order.orderCode,
-    recipient: order.senderPhone,
-    message: result.error ? `${message}\n\nZalo error: ${result.error}` : message,
-    status: result.status,
+    recipient: order.customerZaloUserId,
+    fallbackRecipient: order.senderPhone,
+    message,
   });
 }
 
@@ -243,25 +374,25 @@ export async function sendCustomerZaloVehicleInfo(order: Order, vehicleInfo: str
     "",
     "Anh/chi vui long giu dien thoai de tai xe/nhan vien lien he khi lay hang.",
   ].join("\n");
-  const result = await sendZaloMessage(order.senderPhone, message);
-  return createNotificationLog({
+  return enqueueNotification({
     channel: "ZALO_CUSTOMER",
     eventType: "VEHICLE_ASSIGNED",
     orderId: order.id,
     orderCode: order.orderCode,
-    recipient: order.senderPhone,
-    message: result.error ? `${message}\n\nZalo error: ${result.error}` : message,
-    status: result.status,
+    recipient: order.customerZaloUserId,
+    fallbackRecipient: order.senderPhone,
+    message,
   });
 }
 
 export function mockSendCustomerZaloVehicleAssigned(order: Order) {
-  return createNotificationLog({
+  return enqueueNotification({
     channel: "ZALO_CUSTOMER",
     eventType: "VEHICLE_ASSIGNED",
     orderId: order.id,
     orderCode: order.orderCode,
-    recipient: order.senderPhone,
+    recipient: order.customerZaloUserId,
+    fallbackRecipient: order.senderPhone,
     message: `Zalo mock: Xe nhan don ${order.orderCode}: ${order.assignedDriverName || "tai xe"} - ${order.assignedDriverPhone || "dang cap nhat"} - ${order.assignedVehicleType || "xe"} ${order.assignedVehiclePlate || ""}.`,
   });
 }

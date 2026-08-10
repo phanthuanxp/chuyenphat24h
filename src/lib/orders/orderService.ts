@@ -3,6 +3,8 @@ import type { DriverCandidate, Order, OrderTimelineEvent } from "../types";
 import { mockOrders } from "../../data/mockOrders";
 import { readJsonArray, writeJsonArray } from "../storage/jsonStore";
 import { loadPersistentCollection, persistCollection } from "../storage/persistentStore";
+import { recordOrderAudit, recordOrderCreated, type OrderAuditContext } from "../audit/orderAuditService";
+import { assertOrderTransition, assertTerminalOrderMutation } from "./orderStateMachine";
 
 let orders: Order[] = readJsonArray<Order>("orders.json", mockOrders);
 
@@ -27,13 +29,22 @@ export function getOrderByCode(orderCode: string) {
 export function createOrder(payload: Order) {
   orders = [payload, ...orders];
   persistOrders();
+  recordOrderCreated(payload);
   return payload;
 }
 
-export function updateOrder(orderId: string, updates: Partial<Order>) {
-  orders = orders.map((order) => (order.id === orderId ? { ...order, ...updates, updatedAt: new Date().toISOString() } : order));
+const defaultAuditContext: OrderAuditContext = { source: "SYSTEM", actor: "system" };
+
+export function updateOrder(orderId: string, updates: Partial<Order>, context: OrderAuditContext = defaultAuditContext) {
+  const before = orders.find((order) => order.id === orderId);
+  if (!before) return null;
+  assertTerminalOrderMutation(before.status, Object.keys(updates));
+  if (updates.status) assertOrderTransition(before.status, updates.status);
+  const after = { ...before, ...updates, updatedAt: new Date().toISOString() };
+  orders = orders.map((order) => (order.id === orderId ? after : order));
   persistOrders();
-  return orders.find((order) => order.id === orderId) || null;
+  recordOrderAudit(before, after, context);
+  return after;
 }
 
 export function updateOrderStatus(orderId: string, status: OrderStatus, description?: string) {
@@ -63,7 +74,7 @@ export function addTimelineEvent(orderId: string, event: Omit<OrderTimelineEvent
   return timelineEvent;
 }
 
-export function assignDriverToOrder(orderId: string, candidate: DriverCandidate) {
+export function assignDriverToOrder(orderId: string, candidate: DriverCandidate, context: OrderAuditContext = defaultAuditContext) {
   return updateOrder(orderId, {
     status: OrderStatus.DRIVER_ASSIGNED,
     dispatchStatus: DispatchStatus.DRIVER_ASSIGNED,
@@ -72,7 +83,7 @@ export function assignDriverToOrder(orderId: string, candidate: DriverCandidate)
     assignedDriverPhone: candidate.driverPhone,
     assignedVehicleType: candidate.vehicleType,
     assignedVehiclePlate: candidate.vehiclePlate,
-  });
+  }, context);
 }
 
 export function markOrderManualReview(orderId: string, note = "Can xu ly thu cong") {
