@@ -14,6 +14,8 @@ Quy trinh nay bao ve du lieu don hang, audit log va notification outbox dang luu
 
 ## Cai dat tren VPS
 
+Neu production dang bao `storage: json`, co the dung workflow thu cong `Migrate production storage to PostgreSQL`. Workflow chi chay khi nhap dung `MIGRATE_TO_POSTGRES`, backup tat ca JSON truoc khi doi `.env`, tu rollback `.env` neu health check/import that bai va dung GitHub environment `production`.
+
 Package PostgreSQL da cung cap `pg_dump` va `pg_restore`. Kiem tra:
 
 ```bash
