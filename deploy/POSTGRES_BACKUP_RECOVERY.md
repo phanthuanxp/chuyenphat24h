@@ -10,6 +10,7 @@ Quy trinh nay bao ve du lieu don hang, audit log va notification outbox dang luu
 - Dung `flock` de ngan hai backup chay cung luc.
 - Mac dinh giu 14 ngay; co the doi bang `BACKUP_RETENTION_DAYS`.
 - Moi lan deploy se tao mot backup truoc khi reload PM2. Dat `PREDEPLOY_BACKUP_ENABLED=false` chi khi co ly do van hanh ro rang.
+- Neu `.env` chua co `BACKUP_DIR`, pre-deploy backup dung `storage/backups` de lan nang cap dau tien khong phu thuoc quyen ghi `/var/backups`. Cau hinh systemd ben duoi van dung thu muc production rieng `/var/backups/chuyenphat24h`.
 
 ## Cai dat tren VPS
 

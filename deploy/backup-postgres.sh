@@ -24,7 +24,7 @@ if [ -f "$ENV_FILE" ]; then
   BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-$(read_env_value BACKUP_RETENTION_DAYS)}"
 fi
 
-BACKUP_DIR="${BACKUP_DIR:-/var/backups/chuyenphat24h}"
+BACKUP_DIR="${BACKUP_DIR:-$APP_DIR/storage/backups}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 
 if [[ ! "$BACKUP_RETENTION_DAYS" =~ ^[0-9]+$ ]]; then
