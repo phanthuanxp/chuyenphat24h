@@ -157,5 +157,6 @@ Phan dang mock:
 - Maps API thuc.
 - Zalo OA send-message endpoint/token thuc neu chua cau hinh.
 - Logging/monitoring.
+- PostgreSQL backup/restore: xem `deploy/POSTGRES_BACKUP_RECOVERY.md`; moi deploy tao verified backup va systemd timer chay hang ngay.
 
 Ban hien tai da co AdminCP login bang env va PostgreSQL production storage neu VPS set `DATABASE_URL`. Truoc khi van hanh lon can noi provider Maps server-side, webhook Zalo neu API ho tro va giam sat loi runtime.

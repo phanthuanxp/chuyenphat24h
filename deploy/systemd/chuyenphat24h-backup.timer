@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Chuyen Phat 24H PostgreSQL backup daily
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 Asia/Ho_Chi_Minh
+RandomizedDelaySec=15m
+Persistent=true
+Unit=chuyenphat24h-backup.service
+
+[Install]
+WantedBy=timers.target

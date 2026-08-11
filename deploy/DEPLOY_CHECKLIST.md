@@ -7,11 +7,15 @@
 - [ ] `.env` co `ZALO_WEBHOOK_SECRET`, `TELEGRAM_WEBHOOK_SECRET`; Zalo admin chi dung `ZALO_ADMIN_USER_IDS`.
 - [ ] GitHub environment `production` da bat required reviewers.
 - [ ] PostgreSQL database da tao va `.env` da set `DATABASE_URL`.
+- [ ] `/var/backups/chuyenphat24h` co quyen `0700`, thuoc deployment user.
+- [ ] `chuyenphat24h-backup.timer` dang active va backup gan nhat qua checksum.
+- [ ] Da dien tap restore vao database tam theo `deploy/POSTGRES_BACKUP_RECOVERY.md`.
 - [ ] Telegram bot token/chat id da set neu muon nhan don moi realtime.
 - [ ] Thu muc `storage/` ton tai va khong bi xoa khi deploy.
 - [ ] `npm ci` thanh cong.
 - [ ] `npm run build` thanh cong.
 - [ ] `npm test` thanh cong.
+- [ ] Pre-deploy PostgreSQL backup tao thanh cong truoc khi PM2 reload.
 - [ ] `pm2 start ecosystem.config.cjs` thanh cong.
 - [ ] `curl http://127.0.0.1:3010/api/health` tra `status: ok`, `storage: postgres` va Telegram `live` neu da cau hinh.
 - [ ] DNS domain tro ve IP VPS.
