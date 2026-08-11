@@ -81,6 +81,10 @@ Neu `DATABASE_URL` duoc set, app tu tao bang `app_records` khi start. Co the cha
 psql "$DATABASE_URL" -f deploy/database/schema.sql
 ```
 
+## 3.1. Bat backup PostgreSQL tu dong
+
+Sau khi database hoat dong, cai systemd timer va chay backup dau tien theo [POSTGRES_BACKUP_RECOVERY.md](POSTGRES_BACKUP_RECOVERY.md). Script deploy mac dinh tao them mot verified backup truoc khi reload ung dung.
+
 ## 4. Cai dependencies va build
 
 ```bash
@@ -205,4 +209,4 @@ Ket qua dung co dang:
 - AdminCP da co login cookie co ban bang env.
 - Don hang, dispatch logs va ung tuyen doi tac luu trong PostgreSQL khi `DATABASE_URL` hoat dong; `storage/` la fallback/seed an toan.
 
-Truoc khi chay production lon can uu tien: backup PostgreSQL tu dong + phan quyen admin chi tiet + logging/monitoring.
+Truoc khi chay production lon can uu tien: dien tap restore PostgreSQL + phan quyen admin chi tiet + logging/monitoring.

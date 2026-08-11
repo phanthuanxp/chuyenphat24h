@@ -1,0 +1,23 @@
+[Unit]
+Description=Chuyen Phat 24H PostgreSQL backup
+After=network-online.target postgresql.service
+Wants=network-online.target
+ConditionPathExists=/var/www/chuyenphat24h/.env
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+WorkingDirectory=/var/www/chuyenphat24h
+Environment=APP_DIR=/var/www/chuyenphat24h
+Environment=BACKUP_DIR=/var/backups/chuyenphat24h
+Environment=BACKUP_RETENTION_DAYS=14
+ExecStart=/usr/bin/bash /var/www/chuyenphat24h/deploy/backup-postgres.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/backups/chuyenphat24h

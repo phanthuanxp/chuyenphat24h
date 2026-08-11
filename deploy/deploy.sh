@@ -46,6 +46,11 @@ npm run build
 mkdir -p logs
 mkdir -p storage
 
+if [ "${PREDEPLOY_BACKUP_ENABLED:-true}" = "true" ]; then
+  echo "[deploy] creating verified pre-deploy PostgreSQL backup"
+  APP_DIR="$APP_DIR" BACKUP_SKIP_IF_NO_DATABASE=true bash deploy/backup-postgres.sh
+fi
+
 if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
   echo "[deploy] reloading pm2 app $APP_NAME"
   pm2 reload "$APP_NAME" --update-env
